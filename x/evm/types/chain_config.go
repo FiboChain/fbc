@@ -1,0 +1,286 @@
+package types
+
+import (
+	"fmt"
+	"math/big"
+	"strings"
+
+	"github.com/tendermint/go-amino"
+
+	"gopkg.in/yaml.v2"
+
+	sdk "github.com/FiboChain/fbc/libs/cosmos-sdk/types"
+	sdkerrors "github.com/FiboChain/fbc/libs/cosmos-sdk/types/errors"
+
+	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/params"
+)
+
+// ChainConfig defines the Ethereum ChainConfig parameters using sdk.Int values instead of big.Int.
+//
+// NOTE 1: Since empty/uninitialized Ints (i.e with a nil big.Int value) are parsed to zero, we need to manually
+// specify that negative Int values will be considered as nil. See getBlockValue for reference.
+//
+// NOTE 2: This type is not a configurable Param since the SDK does not allow for validation against
+// a previous stored parameter values or the current block height (retrieved from context). If you
+// want to update the config values, use an software upgrade procedure.
+type ChainConfig struct {
+	HomesteadBlock sdk.Int `json:"homestead_block" yaml:"homestead_block"` // Homestead switch block (< 0 no fork, 0 = already homestead)
+
+	DAOForkBlock   sdk.Int `json:"dao_fork_block" yaml:"dao_fork_block"`     // TheDAO hard-fork switch block (< 0 no fork)
+	DAOForkSupport bool    `json:"dao_fork_support" yaml:"dao_fork_support"` // Whether the nodes supports or opposes the DAO hard-fork
+
+	// EIP150 implements the Gas price changes (https://github.com/ethereum/EIPs/issues/150)
+	EIP150Block sdk.Int `json:"eip150_block" yaml:"eip150_block"` // EIP150 HF block (< 0 no fork)
+	EIP150Hash  string  `json:"eip150_hash" yaml:"eip150_hash"`   // EIP150 HF hash (needed for header only clients as only gas pricing changed)
+
+	EIP155Block sdk.Int `json:"eip155_block" yaml:"eip155_block"` // EIP155 HF block
+	EIP158Block sdk.Int `json:"eip158_block" yaml:"eip158_block"` // EIP158 HF block
+
+	ByzantiumBlock      sdk.Int `json:"byzantium_block" yaml:"byzantium_block"`           // Byzantium switch block (< 0 no fork, 0 = already on byzantium)
+	ConstantinopleBlock sdk.Int `json:"constantinople_block" yaml:"constantinople_block"` // Constantinople switch block (< 0 no fork, 0 = already activated)
+	PetersburgBlock     sdk.Int `json:"petersburg_block" yaml:"petersburg_block"`         // Petersburg switch block (< 0 same as Constantinople)
+	IstanbulBlock       sdk.Int `json:"istanbul_block" yaml:"istanbul_block"`             // Istanbul switch block (< 0 no fork, 0 = already on istanbul)
+	MuirGlacierBlock    sdk.Int `json:"muir_glacier_block" yaml:"muir_glacier_block"`     // Eip-2384 (bomb delay) switch block (< 0 no fork, 0 = already activated)
+
+	YoloV2Block sdk.Int `json:"yoloV2_block" yaml:"yoloV2_block"` // YOLO v1: https://github.com/ethereum/EIPs/pull/2657 (Ephemeral testnet)
+	EWASMBlock  sdk.Int `json:"ewasm_block" yaml:"ewasm_block"`   // EWASM switch block (< 0 no fork, 0 = already activated)
+}
+
+// EthereumConfig returns an Ethereum ChainConfig for EVM state transitions.
+// All the negative or nil values are converted to nil
+func (cc ChainConfig) EthereumConfig(chainID *big.Int) *params.ChainConfig {
+	return &params.ChainConfig{
+		ChainID:             chainID,
+		HomesteadBlock:      getBlockValue(cc.HomesteadBlock),
+		DAOForkBlock:        getBlockValue(cc.DAOForkBlock),
+		DAOForkSupport:      cc.DAOForkSupport,
+		EIP150Block:         getBlockValue(cc.EIP150Block),
+		EIP150Hash:          common.HexToHash(cc.EIP150Hash),
+		EIP155Block:         getBlockValue(cc.EIP155Block),
+		EIP158Block:         getBlockValue(cc.EIP158Block),
+		ByzantiumBlock:      getBlockValue(cc.ByzantiumBlock),
+		ConstantinopleBlock: getBlockValue(cc.ConstantinopleBlock),
+		PetersburgBlock:     getBlockValue(cc.PetersburgBlock),
+		IstanbulBlock:       getBlockValue(cc.IstanbulBlock),
+		MuirGlacierBlock:    getBlockValue(cc.MuirGlacierBlock),
+	}
+}
+
+// IsIstanbul returns whether the Istanbul version is enabled.
+func (cc ChainConfig) IsIstanbul() bool {
+	return getBlockValue(cc.IstanbulBlock) != nil
+}
+
+// IsHomestead returns whether the Homestead version is enabled.
+func (cc ChainConfig) IsHomestead() bool {
+	return getBlockValue(cc.HomesteadBlock) != nil
+}
+
+// String implements the fmt.Stringer interface
+func (cc ChainConfig) String() string {
+	out, _ := yaml.Marshal(cc)
+	return string(out)
+}
+
+// DefaultChainConfig returns default evm parameters. Th
+func DefaultChainConfig() ChainConfig {
+	return ChainConfig{
+		HomesteadBlock:      sdk.ZeroInt(),
+		DAOForkBlock:        sdk.ZeroInt(),
+		DAOForkSupport:      true,
+		EIP150Block:         sdk.ZeroInt(),
+		EIP150Hash:          common.Hash{}.String(),
+		EIP155Block:         sdk.ZeroInt(),
+		EIP158Block:         sdk.ZeroInt(),
+		ByzantiumBlock:      sdk.ZeroInt(),
+		ConstantinopleBlock: sdk.ZeroInt(),
+		PetersburgBlock:     sdk.ZeroInt(),
+		IstanbulBlock:       sdk.ZeroInt(),
+		MuirGlacierBlock:    sdk.ZeroInt(),
+		YoloV2Block:         sdk.NewInt(-1),
+		EWASMBlock:          sdk.NewInt(-1),
+	}
+}
+
+func getBlockValue(block sdk.Int) *big.Int {
+	if block.IsNegative() {
+		return nil
+	}
+
+	return block.BigInt()
+}
+
+// Validate performs a basic validation of the ChainConfig params. The function will return an error
+// if any of the block values is uninitialized (i.e nil) or if the EIP150Hash is an invalid hash.
+func (cc ChainConfig) Validate() error {
+	if err := validateBlock(cc.HomesteadBlock); err != nil {
+		return sdkerrors.Wrap(err, "homesteadBlock")
+	}
+	if err := validateBlock(cc.DAOForkBlock); err != nil {
+		return sdkerrors.Wrap(err, "daoForkBlock")
+	}
+	if err := validateBlock(cc.EIP150Block); err != nil {
+		return sdkerrors.Wrap(err, "eip150Block")
+	}
+	if err := validateHash(cc.EIP150Hash); err != nil {
+		return err
+	}
+	if err := validateBlock(cc.EIP155Block); err != nil {
+		return sdkerrors.Wrap(err, "eip155Block")
+	}
+	if err := validateBlock(cc.EIP158Block); err != nil {
+		return sdkerrors.Wrap(err, "eip158Block")
+	}
+	if err := validateBlock(cc.ByzantiumBlock); err != nil {
+		return sdkerrors.Wrap(err, "byzantiumBlock")
+	}
+	if err := validateBlock(cc.ConstantinopleBlock); err != nil {
+		return sdkerrors.Wrap(err, "constantinopleBlock")
+	}
+	if err := validateBlock(cc.PetersburgBlock); err != nil {
+		return sdkerrors.Wrap(err, "petersburgBlock")
+	}
+	if err := validateBlock(cc.IstanbulBlock); err != nil {
+		return sdkerrors.Wrap(err, "istanbulBlock")
+	}
+	if err := validateBlock(cc.MuirGlacierBlock); err != nil {
+		return sdkerrors.Wrap(err, "muirGlacierBlock")
+	}
+	if err := validateBlock(cc.YoloV2Block); err != nil {
+		return sdkerrors.Wrap(err, "yoloV2Block")
+	}
+	if err := validateBlock(cc.EWASMBlock); err != nil {
+		return sdkerrors.Wrap(err, "eWASMBlock")
+	}
+
+	return nil
+}
+
+func (config *ChainConfig) UnmarshalFromAmino(cdc *amino.Codec, data []byte) error {
+	var dataLen uint64 = 0
+	var subData []byte
+
+	for {
+		data = data[dataLen:]
+
+		if len(data) == 0 {
+			break
+		}
+
+		pos, aminoType, err := amino.ParseProtoPosAndTypeMustOneByte(data[0])
+		if err != nil {
+			return err
+		}
+		data = data[1:]
+
+		if aminoType == amino.Typ3_ByteLength {
+			var n int
+			dataLen, n, err = amino.DecodeUvarint(data)
+			if err != nil {
+				return err
+			}
+			data = data[n:]
+			subData = data[:dataLen]
+		}
+
+		switch pos {
+		case 1:
+			err = config.HomesteadBlock.UnmarshalFromAmino(cdc, subData)
+			if err != nil {
+				return err
+			}
+		case 2:
+			err = config.DAOForkBlock.UnmarshalFromAmino(cdc, subData)
+			if err != nil {
+				return err
+			}
+		case 3:
+			if data[0] != 0 && data[0] != 1 {
+				return fmt.Errorf("invalid DAO fork switch")
+			}
+			config.DAOForkSupport = data[0] == 1
+			dataLen = 1
+		case 4:
+			err = config.EIP150Block.UnmarshalFromAmino(cdc, subData)
+			if err != nil {
+				return err
+			}
+		case 5:
+			config.EIP150Hash = string(subData)
+		case 6:
+			err = config.EIP155Block.UnmarshalFromAmino(cdc, subData)
+			if err != nil {
+				return err
+			}
+		case 7:
+			err = config.EIP158Block.UnmarshalFromAmino(cdc, subData)
+			if err != nil {
+				return err
+			}
+		case 8:
+			err = config.ByzantiumBlock.UnmarshalFromAmino(cdc, subData)
+			if err != nil {
+				return err
+			}
+		case 9:
+			err = config.ConstantinopleBlock.UnmarshalFromAmino(cdc, subData)
+			if err != nil {
+				return err
+			}
+		case 10:
+			err = config.PetersburgBlock.UnmarshalFromAmino(cdc, subData)
+			if err != nil {
+				return err
+			}
+		case 11:
+			err = config.IstanbulBlock.UnmarshalFromAmino(cdc, subData)
+			if err != nil {
+				return err
+			}
+		case 12:
+			err = config.MuirGlacierBlock.UnmarshalFromAmino(cdc, subData)
+			if err != nil {
+				return err
+			}
+		case 13:
+			err = config.YoloV2Block.UnmarshalFromAmino(cdc, subData)
+			if err != nil {
+				return err
+			}
+		case 14:
+			err = config.EWASMBlock.UnmarshalFromAmino(cdc, subData)
+			if err != nil {
+				return err
+			}
+		default:
+			return fmt.Errorf("unexpect feild num %d", pos)
+		}
+	}
+	return nil
+}
+
+func validateHash(hex string) error {
+	if hex != "" && strings.TrimSpace(hex) == "" {
+		return sdkerrors.Wrapf(ErrInvalidChainConfig, "hash cannot be blank")
+	}
+
+	bz := common.FromHex(hex)
+	lenHex := len(bz)
+	if lenHex > 0 && lenHex != common.HashLength {
+		return sdkerrors.Wrapf(ErrInvalidChainConfig, "invalid hash length, expected %d, got %d", common.HashLength, lenHex)
+	}
+
+	return nil
+}
+
+func validateBlock(block sdk.Int) error {
+	if block == (sdk.Int{}) || block.BigInt() == nil {
+		return sdkerrors.Wrapf(
+			ErrInvalidChainConfig,
+			"cannot use uninitialized or nil values for Int, set a negative Int value if you want to define a nil Ethereum block",
+		)
+	}
+
+	return nil
+}

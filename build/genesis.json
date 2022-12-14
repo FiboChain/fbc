@@ -1,0 +1,475 @@
+{
+  "genesis_time": "2022-02-01T00:58:12.27277885Z",
+  "chain_id": "fbc-1230",
+  "consensus_params": {
+    "block": {
+      "max_bytes": "22020096",
+      "max_gas": "-1",
+      "time_iota_ms": "1000"
+    },
+    "evidence": {
+      "max_age_num_blocks": "100000",
+      "max_age_duration": "172800000000000"
+    },
+    "validator": {
+      "pub_key_types": [
+        "ed25519"
+      ]
+    }
+  },
+  "app_hash": "",
+  "app_state": {
+    "ammswap": {
+      "params": {
+        "fee_rate": "0.003000000000000000"
+      },
+      "swap_token_pair_records": null
+    },
+    "auth": {
+      "accounts": [
+        {
+          "type": "fbexchain/EthAccount",
+          "value": {
+            "account_number": 0,
+            "address": "fb1htyzdfys47q30euxwn6npk0vdsdnsfyz0mzlga",
+            "code_hash": "c5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470",
+            "coins": [
+              {
+                "amount": "5000000.000000000000000000",
+                "denom": "fibo"
+              }
+            ],
+            "eth_address": "0xbaC826A490AF8117E78674F530d9eC6C1B382482",
+            "public_key": "",
+            "sequence": 0
+          }
+        },
+        {
+          "type": "fbexchain/EthAccount",
+          "value":
+          {
+              "account_number": 1,
+              "address": "fb10s3jypfmujtmcqmaxmn523xzezu898ppjzrstd",
+              "code_hash": "c5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470",
+              "coins":
+              [
+                  {
+                      "amount": "5000000.000000000000000000",
+                      "denom": "fibo"
+                  }
+              ],
+              "eth_address": "0x7c2322053bE497bC037d36E74544c2c8B8729C21",
+              "public_key": "fbpub17weu6qepqtrvyugr2ydptflc5mh77fqh4hnwz7tfvgtrzkt2ruvcdf4qzumz72mslkt",
+              "sequence": 0
+          }
+        },
+        {
+          "type": "fbexchain/EthAccount",
+          "value":
+          {
+              "account_number": 2,
+              "address": "fb1jw6wte9sn202ytqgleeafanzn6f34tcg73hsg2",
+              "code_hash": "c5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470",
+              "coins":
+              [
+                  {
+                      "amount": "5000000.000000000000000000",
+                      "denom": "fibo"
+                  }
+              ],
+              "eth_address": "0x93B4e5E4b09a9Ea22C08fE73d4F6629e931aaf08",
+              "public_key": "fbpub17weu6qepqv7nu4x3d20fwd0gjyvn4l8w6pk9x777eje96ucl257zp6t4cmh8jptpsfh",
+              "sequence": 0
+          }
+        }
+      ],
+      "params": {
+        "max_memo_characters": "256",
+        "sig_verify_cost_ed25519": "590",
+        "sig_verify_cost_secp256k1": "1000",
+        "tx_sig_limit": "7",
+        "tx_size_cost_per_byte": "10"
+      }
+    },
+    "backend": null,
+    "bank": {
+      "send_enabled": true
+    },
+    "crisis": {
+      "constant_fee": {
+        "amount": "1000.000000000000000000",
+        "denom": "fibo"
+      }
+    },
+    "debug": null,
+    "dex": {
+      "max_token_pair_id": "0",
+      "operators": null,
+      "params": {
+        "delist_max_deposit_period": "86400000000000",
+        "delist_min_deposit": [
+          {
+            "amount": "100.000000000000000000",
+            "denom": "fibo"
+          }
+        ],
+        "delist_voting_period": "259200000000000",
+        "list_fee": {
+          "amount": "20000.000000000000000000",
+          "denom": "fibo"
+        },
+        "ownership_confirm_window": "86400000000000",
+        "register_operator_fee": {
+          "amount": "0.000000000000000000",
+          "denom": "fibo"
+        },
+        "transfer_ownership_fee": {
+          "amount": "10.000000000000000000",
+          "denom": "fibo"
+        },
+        "withdraw_period": "259200000000000"
+      },
+      "product_locks": {
+        "Data": {}
+      },
+      "token_pairs": null,
+      "withdraw_infos": null
+    },
+    "distribution": {
+      "delegator_withdraw_infos": [],
+      "fee_pool": {
+        "community_pool": []
+      },
+      "params": {
+        "community_tax": "0.020000000000000000",
+        "withdraw_addr_enabled": true
+      },
+      "previous_proposer": "",
+      "validator_accumulated_commissions": []
+    },
+    "evidence": {
+      "evidence": [],
+      "params": {
+        "max_evidence_age": "120000000000"
+      }
+    },
+    "evm": {
+      "accounts": [],
+      "chain_config": {
+        "byzantium_block": "0",
+        "constantinople_block": "0",
+        "dao_fork_block": "0",
+        "dao_fork_support": true,
+        "eip150_block": "0",
+        "eip150_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
+        "eip155_block": "0",
+        "eip158_block": "0",
+        "ewasm_block": "-1",
+        "homestead_block": "0",
+        "istanbul_block": "0",
+        "muir_glacier_block": "0",
+        "petersburg_block": "0",
+        "yoloV2_block": "-1"
+      },
+      "contract_blocked_list": [],
+      "contract_deployment_whitelist": [],
+      "params": {
+        "enable_call": true,
+        "enable_contract_blocked_list": false,
+        "enable_contract_deployment_whitelist": false,
+        "enable_create": true,
+        "extra_eips": null,
+        "max_gas_limit_per_tx": "30000000"
+      },
+      "txs_logs": []
+    },
+    "farm": {
+      "current_rewards": [],
+      "historical_rewards": [],
+      "lock_infos": [],
+      "params": {
+        "create_pool_deposit": {
+          "amount": "10.000000000000000000",
+          "denom": "fibo"
+        },
+        "create_pool_fee": {
+          "amount": "0.000000000000000000",
+          "denom": "fibo"
+        },
+        "quote_symbol": "fusd",
+        "yield_native_token": false
+      },
+      "pools": [],
+      "pools_yield_native_token": null
+    },
+    "genutil": {
+      "gentxs": [
+        {
+          "type": "cosmos-sdk/StdTx",
+          "value": {
+            "fee": {
+              "amount": [],
+              "gas": "200000"
+            },
+            "memo": "166931a53c668fb1a3542314f54193f876e4f055@172.31.7.204:26656",
+            "msg": [
+              {
+                "type": "fbexchain/staking/MsgCreateValidator",
+                "value": {
+                  "delegator_address": "fb10s3jypfmujtmcqmaxmn523xzezu898ppjzrstd",
+                  "description": {
+                    "details": "",
+                    "identity": "",
+                    "moniker": "newton",
+                    "website": ""
+                  },
+                  "min_self_delegation": {
+                    "amount": "10000.000000000000000000",
+                    "denom": "fibo"
+                  },
+                  "pubkey": "fbvalconspub1zcjduepqmgsyzh48xhltwl7frr9pcyu0ly64guc6ls2smfa6w0lh9c7s9zjs6wu2f0",
+                  "validator_address": "fbvaloper10s3jypfmujtmcqmaxmn523xzezu898ppvg8zaq"
+                }
+              }
+            ],
+            "signatures": [
+              {
+                "pub_key": {
+                  "type": "ethermint/PubKeyEthSecp256k1",
+                  "value": "AsbCcQNRGhWn+Kbv7yQXrebheWliFjFZah8ZhqagFzYv"
+                },
+                "signature": "SKeRMbbX2F8p2CPwsEq1vSOjb9AXgbLEF+WwIRqdxiogGrqEk3jWm4nS6474DCf/aeDNKNipBO7D4462D14irAA="
+              }
+            ]
+          }
+        },
+        {
+          "type": "cosmos-sdk/StdTx",
+          "value": {
+            "fee": {
+              "amount": [],
+              "gas": "200000"
+            },
+            "memo": "c76b88203a6b180305cbcc26674cffab476aa001@172.31.10.15:26656",
+            "msg": [
+              {
+                "type": "fbexchain/staking/MsgCreateValidator",
+                "value": {
+                  "delegator_address": "fb1htyzdfys47q30euxwn6npk0vdsdnsfyz0mzlga",
+                  "description": {
+                    "details": "",
+                    "identity": "",
+                    "moniker": "atom",
+                    "website": ""
+                  },
+                  "min_self_delegation": {
+                    "amount": "10000.000000000000000000",
+                    "denom": "fibo"
+                  },
+                  "pubkey": "fbvalconspub1zcjduepqxds2kjt6mk2as7glf3w0wg7unkdcd64ynprkwq7kmkjqkhr7dylq6aw6k4",
+                  "validator_address": "fbvaloper1htyzdfys47q30euxwn6npk0vdsdnsfyz33xd7s"
+                }
+              }
+            ],
+            "signatures": [
+              {
+                "pub_key": {
+                  "type": "ethermint/PubKeyEthSecp256k1",
+                  "value": "A9lTvQRaSLG1g41IJhblKxweRawHA72a4sS6CrVQbCXX"
+                },
+                "signature": "0HKU8D8PnQrbUZEgGWY9lBujxjGbSU/osjvuF2MWrlkbvbFMOZ3X34j0kjqlOSt5HH+VbcviMyCLX7YjVwhmDwE="
+              }
+            ]
+          }
+        },
+        {
+          "type": "cosmos-sdk/StdTx",
+          "value": {
+            "fee": {
+              "amount": [],
+              "gas": "200000"
+            },
+            "memo": "528d839d6a74645cc819cc960a57cc5eeb376edb@172.31.11.157:26656",
+            "msg": [
+              {
+                "type": "fbexchain/staking/MsgCreateValidator",
+                "value": {
+                  "delegator_address": "fb1jw6wte9sn202ytqgleeafanzn6f34tcg73hsg2",
+                  "description": {
+                    "details": "",
+                    "identity": "",
+                    "moniker": "turing",
+                    "website": ""
+                  },
+                  "min_self_delegation": {
+                    "amount": "10000.000000000000000000",
+                    "denom": "fibo"
+                  },
+                  "pubkey": "fbvalconspub1zcjduepq8wnhqx998szyz30hen7006j0fyy9g9u0gzc2wp5ln2gypcm46cpqnae8lj",
+                  "validator_address": "fbvaloper1jw6wte9sn202ytqgleeafanzn6f34tcgqmnz78"
+                }
+              }
+            ],
+            "signatures": [
+              {
+                "pub_key": {
+                  "type": "ethermint/PubKeyEthSecp256k1",
+                  "value": "Az0+VNFqnpc16JEZOvzu0GxTe97Msl1zH1U8IOl1xu55"
+                },
+                "signature": "Omfv21ngsOLJWuozt7pYQL5QNEAYigwpitsJFvcl7xhGkMnUgG4xfT2/9DdEN7iKv3STjElePwKKydl2Ba0digE="
+              }
+            ]
+          }
+        }
+      ]
+    },
+    "gov": {
+      "deposit_params": {
+        "max_deposit_period": "86400000000000",
+        "min_deposit": [
+          {
+            "amount": "100.000000000000000000",
+            "denom": "fibo"
+          }
+        ]
+      },
+      "deposits": null,
+      "proposals": [],
+      "starting_proposal_id": "1",
+      "tally_params": {
+        "quorum": "0.334000000000000000",
+        "threshold": "0.500000000000000000",
+        "veto": "0.334000000000000000",
+        "yes_in_vote_period": "0.667000000000000000"
+      },
+      "votes": null,
+      "voting_params": {
+        "voting_period": "259200000000000"
+      },
+      "waiting_proposals": {}
+    },
+    "mint": {
+      "minter": {
+        "minted_per_block": [
+          {
+            "amount": "0.000000000000000000",
+            "denom": "fibo"
+          }
+        ],
+        "next_block_to_update": "0"
+      },
+      "original_minted_per_block": "1.000000000000000000",
+      "params": {
+        "blocks_per_year": "10519200",
+        "deflation_epoch": "3",
+        "deflation_rate": "0.500000000000000000",
+        "farm_proportion": "0.000000000000000000",
+        "goal_bonded": "0",
+        "inflation_max": "0",
+        "inflation_min": "0",
+        "inflation_rate_change": "0",
+        "mint_denom": "fibo"
+      }
+    },
+    "order": {
+      "open_orders": null,
+      "params": {
+        "cancel_order_msg_gas_unit": "30000",
+        "fee_per_block": {
+          "amount": "0.000000000000000000",
+          "denom": "fibo"
+        },
+        "max_deals_per_block": "1000",
+        "new_order_msg_gas_unit": "40000",
+        "order_expire_blocks": "259200",
+        "trade_fee_rate": "0.001000000000000000"
+      }
+    },
+    "params": {
+      "params": {
+        "max_block_height": "100000",
+        "max_deposit_period": "86400000000000",
+        "min_deposit": [
+          {
+            "amount": "100.000000000000000000",
+            "denom": "fibo"
+          }
+        ],
+        "voting_period": "259200000000000"
+      }
+    },
+    "slashing": {
+      "missed_blocks": {},
+      "params": {
+        "downtime_jail_duration": "600000000000",
+        "min_signed_per_window": "0.050000000000000000",
+        "signed_blocks_window": "10000",
+        "slash_fraction_double_sign": "0.000000000000000000",
+        "slash_fraction_downtime": "0.000000000000000000"
+      },
+      "signing_infos": {}
+    },
+    "staking": {
+      "all_shares": null,
+      "delegators": null,
+      "exported": false,
+      "last_total_power": "0",
+      "last_validator_powers": null,
+      "params": {
+        "epoch": 252,
+        "max_bonded_validators": 21,
+        "max_validators_to_add_shares": 30,
+        "min_delegation": "0.000100000000000000",
+        "min_self_delegation": "10000.000000000000000000",
+        "unbonding_time": "1209600000000000"
+      },
+      "proxy_delegator_keys": null,
+      "unbonding_delegations": null,
+      "validators": null
+    },
+    "stream": null,
+    "supply": {
+      "supply": []
+    },
+    "token": {
+      "locked_assets": null,
+      "locked_fees": null,
+      "params": {
+        "burn_fee": {
+          "amount": "10.000000000000000000",
+          "denom": "fibo"
+        },
+        "issue_fee": {
+          "amount": "2500.000000000000000000",
+          "denom": "fibo"
+        },
+        "mint_fee": {
+          "amount": "10.000000000000000000",
+          "denom": "fibo"
+        },
+        "modify_fee": {
+          "amount": "0.000000000000000000",
+          "denom": "fibo"
+        },
+        "ownership_confirm_window": "86400000000000",
+        "transfer_ownership_fee": {
+          "amount": "10.000000000000000000",
+          "denom": "fibo"
+        }
+      },
+      "tokens": [
+        {
+          "description": "FB Group Global Utility Token",
+          "mintable": true,
+          "original_symbol": "fibo",
+          "original_total_supply": "1000000000.000000000000000000",
+          "owner": "fb18rrc500xu2haw7vyksqlj2lfp9xex2hczv3jkx",
+          "symbol": "fibo",
+          "type": "0",
+          "whole_name": "FIBO"
+        }
+      ]
+    },
+    "upgrade": {}
+  }
+}

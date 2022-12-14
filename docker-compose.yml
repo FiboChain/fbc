@@ -1,0 +1,68 @@
+version: '3'
+
+services:
+  fbchaindnode0:
+    container_name: fbchaindnode0
+    image: "fbchain/node"
+    ports:
+      - "26656-26657:26656-26657"
+    environment:
+      - ID=0
+      - LOG=${LOG:-fbchaind.log}
+    volumes:
+      - ./build:/fbchaind:Z
+    networks:
+      localnet:
+        ipv4_address: 192.168.10.2
+
+  fbchaindnode1:
+    container_name: fbchaindnode1
+    image: "fbchain/node"
+    ports:
+      - "26659-26660:26656-26657"
+    environment:
+      - ID=1
+      - LOG=${LOG:-fbchaind.log}
+    volumes:
+      - ./build:/fbchaind:Z
+    networks:
+      localnet:
+        ipv4_address: 192.168.10.3
+
+  fbchaindnode2:
+    container_name: fbchaindnode2
+    image: "fbchain/node"
+    environment:
+      - ID=2
+      - LOG=${LOG:-fbchaind.log}
+    ports:
+      - "26661-26662:26656-26657"
+    volumes:
+      - ./build:/fbchaind:Z
+    networks:
+      localnet:
+        ipv4_address: 192.168.10.4
+
+  fbchaindnode3:
+    container_name: fbchaindnode4
+    image: "fbchain/node"
+    environment:
+      - ID=3
+      - LOG=${LOG:-fbchaind.log}
+    ports:
+      - "26663-26664:26656-26657"
+    volumes:
+      - ./build:/fbchaind:Z
+    networks:
+      localnet:
+        ipv4_address: 192.168.10.5
+
+networks:
+  localnet:
+    driver: bridge
+    ipam:
+      driver: default
+      config:
+      -
+        subnet: 192.168.10.0/16
+
