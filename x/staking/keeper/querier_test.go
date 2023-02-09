@@ -6,6 +6,7 @@ import (
 	types2 "github.com/FiboChain/fbc/libs/cosmos-sdk/types"
 	abci "github.com/FiboChain/fbc/libs/tendermint/abci/types"
 	"github.com/FiboChain/fbc/x/staking/types"
+
 	"github.com/stretchr/testify/require"
 	"github.com/tendermint/go-amino"
 )
@@ -99,7 +100,6 @@ func TestQueryParams(t *testing.T) {
 	querior := NewQuerier(keeper)
 	data, err := querior(ctx, []string{types.QueryParameters}, abci.RequestQuery{})
 	require.True(t, err == nil)
-
 	params := types.Params{}
 	_ = amino.UnmarshalJSON(data, &params)
 	require.Equal(t, types.DefaultMaxValidators, params.MaxValidators)

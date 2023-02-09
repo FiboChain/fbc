@@ -8,7 +8,7 @@ import (
 	"github.com/FiboChain/fbc/app"
 	"github.com/FiboChain/fbc/libs/cosmos-sdk/codec"
 	"github.com/FiboChain/fbc/libs/tendermint/libs/log"
-	dbm "github.com/tendermint/tm-db"
+	dbm "github.com/FiboChain/fbc/libs/tm-db"
 
 	sdk "github.com/FiboChain/fbc/libs/cosmos-sdk/types"
 	"github.com/FiboChain/fbc/libs/cosmos-sdk/x/supply"
@@ -58,13 +58,13 @@ type KeeperTestSuite struct {
 	ctx     sdk.Context
 	querier sdk.Querier
 	keeper  keeper.Keeper
-	app     *app.FBchainApp
+	app     *app.FBChainApp
 }
 
-func MakeFBChainApp() *app.FBchainApp {
+func MakeFBChainApp() *app.FBChainApp {
 	genesisState := app.NewDefaultGenesisState()
 	db := dbm.NewMemDB()
-	fbapp := app.NewFBchainApp(log.NewTMLogger(log.NewSyncWriter(os.Stdout)), db, nil, true, map[int64]bool{}, 0)
+	fbapp := app.NewFBChainApp(log.NewTMLogger(log.NewSyncWriter(os.Stdout)), db, nil, true, map[int64]bool{}, 0)
 
 	stateBytes, err := codec.MarshalJSONIndent(fbapp.Codec(), genesisState)
 	if err != nil {

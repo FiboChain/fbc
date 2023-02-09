@@ -1,8 +1,8 @@
 package rest
 
 import (
-	govRest "github.com/FiboChain/fbc/x/gov/client/rest"
 	"github.com/gorilla/mux"
+	govRest "github.com/FiboChain/fbc/x/gov/client/rest"
 
 	"github.com/FiboChain/fbc/libs/cosmos-sdk/client/context"
 )

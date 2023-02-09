@@ -12,9 +12,9 @@ import (
 	"github.com/ethereum/go-ethereum/accounts/keystore"
 	"github.com/ethereum/go-ethereum/common"
 	ethcrypto "github.com/ethereum/go-ethereum/crypto"
+	"github.com/google/uuid"
 	"github.com/FiboChain/fbc/app/crypto/ethsecp256k1"
 	tmcrypto "github.com/FiboChain/fbc/libs/tendermint/crypto"
-	"github.com/google/uuid"
 )
 
 // CreateKeystoreByTmKey  create a eth keystore by accountname from keybase

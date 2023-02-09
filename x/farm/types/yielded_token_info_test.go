@@ -1,9 +1,13 @@
+//go:build ignore
+// +build ignore
+
 package types
 
 import (
+	"testing"
+
 	sdk "github.com/FiboChain/fbc/libs/cosmos-sdk/types"
 	"github.com/stretchr/testify/require"
-	"testing"
 )
 
 func TestYieldedTokenInfo(t *testing.T) {

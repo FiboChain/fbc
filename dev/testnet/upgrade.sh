@@ -9,7 +9,7 @@ set -m
 
 # set -x # activate debugging
 
-source oec.profile
+source fbc.profile
 PRERUN=false
 
 REST_PORT_MAP='{"val0":8545,"val1":8645,"val2":8745,"val3":8845,"rpc4":8945,"rpc5":9045}'
@@ -22,7 +22,7 @@ function killbyname_gracefully() {
   echo "All <$NAME> killed gracefully!"
 }
 
-function build_exchain() {
+function build_fbchain() {
   version=$1
   (cd ../.. && git checkout dev && git pull && git checkout $version && make install)
   echo "fbchaind version ////"
@@ -185,7 +185,7 @@ function case_prepare() {
   killbyname_gracefully "./client"
 
   bash testnet.sh -i
-  build_exchain $version1
+  build_fbchain $version1
   bash testnet.sh -s -n 4
   bash addnewnode.sh -n 4
   bash addnewnode.sh -n 5
@@ -243,7 +243,7 @@ function case_1() {
   sleep 2
 
   #STEP BUILD version2
-  build_exchain $version2
+  build_fbchain $version2
 
   #STEP add rpc
   add_rpc 4
@@ -288,7 +288,7 @@ function case_2() {
   sleep 30
 
   #STEP BUILD version2
-  build_exchain $version2
+  build_fbchain $version2
 
   #STEP upgrade 25% v
   killbyname_gracefully "cache/node3/fbchaind"
@@ -357,7 +357,7 @@ function case_3() {
   sleep 30
 
   #STEP BUILD version2
-  build_exchain $version2
+  build_fbchain $version2
 
   #STEP upgrade 100% v
   killbyname_gracefully "cache/node3/fbchaind"
@@ -392,7 +392,7 @@ if [ -z ${IP} ]; then
   IP="127.0.0.1"
 fi
 
-### send two params , the first is the old version of exchain, the second is the newer version.
+### send two params , the first is the old version of fbc, the second is the newer version.
 exc_version1=$1
 exc_version2=$2
 caseopt $exc_version1 $exc_version2

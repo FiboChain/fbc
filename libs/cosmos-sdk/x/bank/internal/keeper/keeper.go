@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/FiboChain/fbc/libs/cosmos-sdk/codec"
+
 	"github.com/FiboChain/fbc/libs/tendermint/libs/log"
 
 	sdk "github.com/FiboChain/fbc/libs/cosmos-sdk/types"
@@ -14,6 +16,7 @@ import (
 	vestexported "github.com/FiboChain/fbc/libs/cosmos-sdk/x/auth/vesting/exported"
 	"github.com/FiboChain/fbc/libs/cosmos-sdk/x/bank/internal/types"
 	"github.com/FiboChain/fbc/libs/cosmos-sdk/x/params"
+	"github.com/FiboChain/fbc/libs/tendermint/global"
 )
 
 var _ Keeper = (*BaseKeeper)(nil)
@@ -35,6 +38,8 @@ type BaseKeeper struct {
 
 	ak         types.AccountKeeper
 	paramSpace params.Subspace
+
+	marshal *codec.CodecProxy
 }
 
 // NewBaseKeeper returns a new BaseKeeper
@@ -50,6 +55,13 @@ func NewBaseKeeper(
 	}
 }
 
+func NewBaseKeeperWithMarshal(ak types.AccountKeeper, marshal *codec.CodecProxy, paramSpace params.Subspace, blacklistedAddrs map[string]bool,
+) BaseKeeper {
+	ret := NewBaseKeeper(ak, paramSpace, blacklistedAddrs)
+	ret.marshal = marshal
+	return ret
+}
+
 // DelegateCoins performs delegation by deducting amt coins from an account with
 // address addr. For vesting accounts, delegations amounts are tracked for both
 // vesting and vested coins.
@@ -58,7 +70,7 @@ func NewBaseKeeper(
 func (keeper BaseKeeper) DelegateCoins(ctx sdk.Context, delegatorAddr, moduleAccAddr sdk.AccAddress, amt sdk.Coins) (err error) {
 	defer func() {
 		if !ctx.IsCheckTx() && keeper.ik != nil {
-			keeper.ik.UpdateInnerTx(ctx.TxBytes(), innertx.CosmosDepth, delegatorAddr, moduleAccAddr, innertx.CosmosCallType, innertx.DelegateCallName, amt, err)
+			keeper.ik.UpdateInnerTx(ctx.TxBytes(), ctx.BlockHeight(), innertx.CosmosDepth, delegatorAddr, moduleAccAddr, innertx.CosmosCallType, innertx.DelegateCallName, amt, err)
 		}
 	}()
 	delegatorAcc := keeper.ak.GetAccount(ctx, delegatorAddr)
@@ -106,7 +118,7 @@ func (keeper BaseKeeper) DelegateCoins(ctx sdk.Context, delegatorAddr, moduleAcc
 func (keeper BaseKeeper) UndelegateCoins(ctx sdk.Context, moduleAccAddr, delegatorAddr sdk.AccAddress, amt sdk.Coins) (err error) {
 	defer func() {
 		if !ctx.IsCheckTx() && keeper.ik != nil {
-			keeper.ik.UpdateInnerTx(ctx.TxBytes(), innertx.CosmosDepth, moduleAccAddr, delegatorAddr, innertx.CosmosCallType, innertx.UndelegateCallName, amt, err)
+			keeper.ik.UpdateInnerTx(ctx.TxBytes(), ctx.BlockHeight(), innertx.CosmosDepth, moduleAccAddr, delegatorAddr, innertx.CosmosCallType, innertx.UndelegateCallName, amt, err)
 		}
 	}()
 
@@ -200,11 +212,11 @@ func (keeper BaseSendKeeper) InputOutputCoins(ctx sdk.Context, inputs []types.In
 	defer func() {
 		if !ctx.IsCheckTx() && keeper.ik != nil {
 			for _, in := range inputs {
-				keeper.ik.UpdateInnerTx(ctx.TxBytes(), innertx.CosmosDepth, in.Address, sdk.AccAddress{}, innertx.CosmosCallType, innertx.MultiCallName, in.Coins, err)
+				keeper.ik.UpdateInnerTx(ctx.TxBytes(), ctx.BlockHeight(), innertx.CosmosDepth, in.Address, sdk.AccAddress{}, innertx.CosmosCallType, innertx.MultiCallName, in.Coins, err)
 			}
 
 			for _, out := range outputs {
-				keeper.ik.UpdateInnerTx(ctx.TxBytes(), innertx.CosmosDepth, sdk.AccAddress{}, out.Address, innertx.CosmosCallType, innertx.MultiCallName, out.Coins, err)
+				keeper.ik.UpdateInnerTx(ctx.TxBytes(), ctx.BlockHeight(), innertx.CosmosDepth, sdk.AccAddress{}, out.Address, innertx.CosmosCallType, innertx.MultiCallName, out.Coins, err)
 			}
 		}
 	}()
@@ -259,7 +271,7 @@ func (keeper BaseSendKeeper) InputOutputCoins(ctx sdk.Context, inputs []types.In
 func (keeper BaseSendKeeper) SendCoins(ctx sdk.Context, fromAddr sdk.AccAddress, toAddr sdk.AccAddress, amt sdk.Coins) (err error) {
 	defer func() {
 		if !ctx.IsCheckTx() && keeper.ik != nil {
-			keeper.ik.UpdateInnerTx(ctx.TxBytes(), innertx.CosmosDepth, fromAddr, toAddr, innertx.CosmosCallType, innertx.SendCallName, amt, err)
+			keeper.ik.UpdateInnerTx(ctx.TxBytes(), ctx.BlockHeight(), innertx.CosmosDepth, fromAddr, toAddr, innertx.CosmosCallType, innertx.SendCallName, amt, err)
 		}
 	}()
 	fromAddrStr := fromAddr.String()
@@ -432,6 +444,7 @@ func (keeper BaseSendKeeper) GetSendEnabled(ctx sdk.Context) bool {
 
 // SetSendEnabled sets the send enabled
 func (keeper BaseSendKeeper) SetSendEnabled(ctx sdk.Context, enabled bool) {
+	global.Manager.SetSendEnabled(enabled)
 	keeper.paramSpace.Set(ctx, types.ParamStoreKeySendEnabled, &enabled)
 }
 

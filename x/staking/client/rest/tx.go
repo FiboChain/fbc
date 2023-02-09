@@ -4,13 +4,13 @@ import (
 	"bytes"
 	"net/http"
 
+	"github.com/gorilla/mux"
 	"github.com/FiboChain/fbc/libs/cosmos-sdk/client/context"
 	sdk "github.com/FiboChain/fbc/libs/cosmos-sdk/types"
 	"github.com/FiboChain/fbc/libs/cosmos-sdk/types/rest"
 	"github.com/FiboChain/fbc/libs/cosmos-sdk/x/auth/client/utils"
 	"github.com/FiboChain/fbc/x/common"
 	"github.com/FiboChain/fbc/x/staking/types"
-	"github.com/gorilla/mux"
 )
 
 func registerTxRoutes(cliCtx context.CLIContext, r *mux.Router) {

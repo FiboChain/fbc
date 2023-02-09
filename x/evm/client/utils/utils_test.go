@@ -15,8 +15,8 @@ const (
   "title": "default title",
   "description": "default description",
   "distributor_addresses": [
-    "ex1cftp8q8g4aa65nw9s5trwexe77d9t6cr8ndu02",
-    "ex1k0wwsg7xf9tjt3rvxdewz42e74sp286agrf9qc"
+    "fb1suh2tdzzphg7x7c9hvadntqc00ar9xgjpj9snw",
+    "fb1lz3l5hnchv4wrl759kjvl33dpfr66f7x5fp68c"
   ],
   "is_added": true,
   "deposit": [
@@ -30,8 +30,8 @@ const (
   "title": "default title",
   "description": "default description",
   "contract_addresses": [
-    "ex1cftp8q8g4aa65nw9s5trwexe77d9t6cr8ndu02",
-    "ex1k0wwsg7xf9tjt3rvxdewz42e74sp286agrf9qc"
+    "fb1suh2tdzzphg7x7c9hvadntqc00ar9xgjpj9snw",
+    "fb1lz3l5hnchv4wrl759kjvl33dpfr66f7x5fp68c"
   ],
   "is_added": true,
   "deposit": [
@@ -46,7 +46,7 @@ const (
   "description": "default description",
   "contract_addresses":[
         {
-            "address": "ex1cftp8q8g4aa65nw9s5trwexe77d9t6cr8ndu02",
+            "address": "fb1suh2tdzzphg7x7c9hvadntqc00ar9xgjpj9snw",
             "block_methods": [
                 {
                     "sign": "0x371303c0",
@@ -59,7 +59,7 @@ const (
             ]
         },
 		{
-            "address": "ex1k0wwsg7xf9tjt3rvxdewz42e74sp286agrf9qc",
+            "address": "fb1lz3l5hnchv4wrl759kjvl33dpfr66f7x5fp68c",
             "block_methods": [
                 {
                     "sign": "0x371303c0",
@@ -83,8 +83,8 @@ const (
 	fileName                 = "./proposal.json"
 	expectedTitle            = "default title"
 	expectedDescription      = "default description"
-	expectedDistributorAddr1 = "ex1cftp8q8g4aa65nw9s5trwexe77d9t6cr8ndu02"
-	expectedDistributorAddr2 = "ex1k0wwsg7xf9tjt3rvxdewz42e74sp286agrf9qc"
+	expectedDistributorAddr1 = "fb1suh2tdzzphg7x7c9hvadntqc00ar9xgjpj9snw"
+	expectedDistributorAddr2 = "fb1lz3l5hnchv4wrl759kjvl33dpfr66f7x5fp68c"
 	expectedMethodSign1      = "0x371303c0"
 	expectedMethodExtra1     = "inc()"
 	expectedMethodSign2      = "0x579be378"
@@ -182,4 +182,38 @@ func TestParseManageContractMethodBlockedListProposalJSON(t *testing.T) {
 	expectBc2 := types.NewBlockContract(addr2, methods)
 	ok := types.BlockedContractListIsEqual(t, proposal.ContractList, types.BlockedContractList{*expectBc1, *expectBc2})
 	require.True(t, ok)
+}
+
+func TestParseManageSysContractAddressProposalJSON(t *testing.T) {
+	defaultSysContractAddressProposalJSON := `{
+  "title":"default title",
+  "description":"default description",
+  "contract_address": "0xA4FFCda536CC8fF1eeFe32D32EE943b9B4e70414",
+  "is_added":true,
+  "deposit": [
+    {
+      "denom": "fibo",
+      "amount": "100.000000000000000000"
+    }
+  ]
+}`
+	// create JSON file
+	filePathName := "./defaultSysContractAddressProposalJSON.json"
+	f, err := os.OpenFile(filePathName, os.O_RDWR|os.O_CREATE, 0666)
+	require.NoError(t, err)
+	_, err = f.WriteString(defaultSysContractAddressProposalJSON)
+	require.NoError(t, err)
+	require.NoError(t, f.Close())
+
+	// remove the temporary JSON file
+	defer os.Remove(filePathName)
+
+	proposal, err := ParseManageSysContractAddressProposalJSON(types.ModuleCdc, filePathName)
+	require.NoError(t, err)
+	require.Equal(t, expectedTitle, proposal.Title)
+	require.Equal(t, expectedDescription, proposal.Description)
+	require.True(t, proposal.IsAdded)
+	require.Equal(t, 1, len(proposal.Deposit))
+	require.Equal(t, sdk.DefaultBondDenom, proposal.Deposit[0].Denom)
+	require.True(t, sdk.NewDec(100).Equal(proposal.Deposit[0].Amount))
 }

@@ -5,6 +5,9 @@ import (
 	"io"
 	"os"
 
+	"github.com/FiboChain/fbc/libs/cosmos-sdk/codec/types"
+	tmtypes "github.com/FiboChain/fbc/libs/tendermint/types"
+
 	"github.com/FiboChain/fbc/libs/tendermint/libs/cli"
 	tmlite "github.com/FiboChain/fbc/libs/tendermint/lite"
 	rpcclient "github.com/FiboChain/fbc/libs/tendermint/rpc/client"
@@ -43,6 +46,9 @@ type CLIContext struct {
 	GenerateOnly  bool
 	Indent        bool
 	SkipConfirm   bool
+
+	InterfaceRegistry types.InterfaceRegistry
+	CodecProy         *codec.CodecProxy
 }
 
 // NewCLIContextWithInputAndFrom returns a new initialized CLIContext with parameters from the
@@ -69,6 +75,16 @@ func NewCLIContextWithInputAndFrom(input io.Reader, from string) CLIContext {
 			if err != nil {
 				fmt.Printf("failted to get client: %v\n", err)
 				os.Exit(1)
+			}
+			st, err := rpc.Status()
+			if err != nil {
+				fmt.Printf("failted to call status: %v\n", err)
+			} else {
+				if st.NodeInfo.Network == tmtypes.MainNet {
+					tmtypes.SetupMainNetEnvironment(st.SyncInfo.EarliestBlockHeight)
+				} else if st.NodeInfo.Network == tmtypes.TestNet {
+					tmtypes.SetupTestNetEnvironment(st.SyncInfo.EarliestBlockHeight)
+				}
 			}
 		}
 	}
@@ -133,6 +149,9 @@ func (ctx CLIContext) WithInput(r io.Reader) CLIContext {
 // WithCodec returns a copy of the context with an updated codec.
 func (ctx CLIContext) WithCodec(cdc *codec.Codec) CLIContext {
 	ctx.Codec = cdc
+	if ctx.CodecProy == nil {
+		ctx.CodecProy = codec.NewCodecProxy(codec.NewProtoCodec(nil), cdc)
+	}
 	return ctx
 }
 

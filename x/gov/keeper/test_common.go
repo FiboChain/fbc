@@ -2,10 +2,14 @@ package keeper
 
 import (
 	"bytes"
-	authexported "github.com/FiboChain/fbc/libs/cosmos-sdk/x/auth/exported"
 	"strconv"
 	"testing"
 	"time"
+
+	"github.com/FiboChain/fbc/libs/cosmos-sdk/store/mpt"
+
+	types2 "github.com/FiboChain/fbc/libs/cosmos-sdk/codec/types"
+	authexported "github.com/FiboChain/fbc/libs/cosmos-sdk/x/auth/exported"
 
 	"github.com/FiboChain/fbc/libs/cosmos-sdk/codec"
 	"github.com/FiboChain/fbc/libs/cosmos-sdk/store"
@@ -19,8 +23,8 @@ import (
 	"github.com/FiboChain/fbc/libs/tendermint/crypto/ed25519"
 	"github.com/FiboChain/fbc/libs/tendermint/libs/log"
 	tmtypes "github.com/FiboChain/fbc/libs/tendermint/types"
-	"github.com/stretchr/testify/require"
 	dbm "github.com/FiboChain/fbc/libs/tm-db"
+	"github.com/stretchr/testify/require"
 
 	"github.com/FiboChain/fbc/x/gov/types"
 	"github.com/FiboChain/fbc/x/params"
@@ -97,6 +101,7 @@ func CreateTestInput(
 	stakingTkSk := sdk.NewTransientStoreKey(staking.TStoreKey)
 
 	keyAcc := sdk.NewKVStoreKey(auth.StoreKey)
+	keyMpt := sdk.NewKVStoreKey(mpt.StoreKey)
 	keyParams := sdk.NewKVStoreKey(params.StoreKey)
 	tkeyParams := sdk.NewTransientStoreKey(params.TStoreKey)
 	keySupply := sdk.NewKVStoreKey(supply.StoreKey)
@@ -108,6 +113,7 @@ func CreateTestInput(
 	ms.MountStoreWithDB(stakingSk, sdk.StoreTypeIAVL, db)
 
 	ms.MountStoreWithDB(keyAcc, sdk.StoreTypeIAVL, db)
+	ms.MountStoreWithDB(keyMpt, sdk.StoreTypeMPT, db)
 	ms.MountStoreWithDB(keyParams, sdk.StoreTypeIAVL, db)
 	ms.MountStoreWithDB(tkeyParams, sdk.StoreTypeTransient, db)
 	ms.MountStoreWithDB(keySupply, sdk.StoreTypeIAVL, db)
@@ -116,7 +122,7 @@ func CreateTestInput(
 	require.Nil(t, err)
 
 	ctx := sdk.NewContext(ms, abci.Header{ChainID: "fibochain"}, isCheckTx, log.NewNopLogger())
-	ctx = ctx.WithConsensusParams(
+	ctx.SetConsensusParams(
 		&abci.ConsensusParams{
 			Validator: &abci.ValidatorParams{
 				PubKeyTypes: []string{tmtypes.ABCIPubKeyTypeEd25519},
@@ -124,6 +130,9 @@ func CreateTestInput(
 		},
 	)
 	cdc := MakeTestCodec()
+	reg := types2.NewInterfaceRegistry()
+	cc := codec.NewProtoCodec(reg)
+	pro := codec.NewCodecProxy(cc, cdc)
 
 	feeCollectorAcc := supply.NewEmptyModuleAccount(auth.FeeCollectorName)
 	notBondedPool := supply.NewEmptyModuleAccount(staking.NotBondedPoolName, supply.Staking)
@@ -141,6 +150,7 @@ func CreateTestInput(
 	accountKeeper := auth.NewAccountKeeper(
 		cdc,    // amino codec
 		keyAcc, // target store
+		keyMpt,
 		pk.Subspace(auth.DefaultParamspace),
 		auth.ProtoBaseAccount, // prototype
 	)
@@ -158,7 +168,7 @@ func CreateTestInput(
 		staking.BondedPoolName:    {supply.Staking},
 		types.ModuleName:          nil,
 	}
-	supplyKeeper := supply.NewKeeper(cdc, keySupply, accountKeeper, bk, maccPerms)
+	supplyKeeper := supply.NewKeeper(cdc, keySupply, accountKeeper, bank.NewBankKeeperAdapter(bk), maccPerms)
 
 	initCoins := sdk.NewCoins(sdk.NewInt64DecCoin(sdk.DefaultBondDenom, initBalance))
 	totalSupply := sdk.NewCoins(sdk.NewInt64DecCoin(sdk.DefaultBondDenom, initBalance*(int64(len(Addrs)))))
@@ -166,7 +176,7 @@ func CreateTestInput(
 	supplyKeeper.SetSupply(ctx, supply.NewSupply(totalSupply))
 
 	// for staking/distr rollback to cosmos-sdk
-	stakingKeeper := staking.NewKeeper(cdc, stakingSk, supplyKeeper,
+	stakingKeeper := staking.NewKeeper(pro, stakingSk, supplyKeeper,
 		pk.Subspace(staking.DefaultParamspace))
 
 	stakingKeeper.SetParams(ctx, staking.DefaultParams())

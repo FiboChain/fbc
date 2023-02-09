@@ -5,8 +5,8 @@ import (
 	"testing"
 
 	tmrand "github.com/FiboChain/fbc/libs/tendermint/libs/rand"
-	"github.com/stretchr/testify/require"
 	dbm "github.com/FiboChain/fbc/libs/tm-db"
+	"github.com/stretchr/testify/require"
 
 	"github.com/FiboChain/fbc/libs/cosmos-sdk/store/cachekv"
 	"github.com/FiboChain/fbc/libs/cosmos-sdk/store/dbadapter"

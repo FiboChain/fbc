@@ -5,13 +5,13 @@ import (
 )
 
 const (
-	// NativeToken defines the default coin denomination used in FBchain in:
+	// NativeToken defines the default coin denomination used in fbchainin:
 	//
 	// - Staking parameters: denomination used as stake in the dPoS chain
 	// - Mint parameters: denomination minted due to fee distribution rewards
 	// - Governance parameters: denomination used for spam prevention in proposal deposits
 	// - Crisis parameters: constant fee denomination used for spam prevention to check broken invariant
-	// - EVM parameters: denomination used for running EVM state transitions in FBchain.
+	// - EVM parameters: denomination used for running EVM state transitions in FBChain.
 	NativeToken string = sdk.DefaultBondDenom
 
 	// BaseDenomUnit defines the base denomination unit for Photons.

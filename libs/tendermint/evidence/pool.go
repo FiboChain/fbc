@@ -7,6 +7,7 @@ import (
 
 	dbm "github.com/FiboChain/fbc/libs/tm-db"
 
+	"github.com/FiboChain/fbc/libs/tendermint/consensus"
 	clist "github.com/FiboChain/fbc/libs/tendermint/libs/clist"
 	"github.com/FiboChain/fbc/libs/tendermint/libs/log"
 	sm "github.com/FiboChain/fbc/libs/tendermint/state"
@@ -96,6 +97,13 @@ func (evpool *Pool) Update(block *types.Block, state sm.State) {
 
 // AddEvidence checks the evidence is valid and adds it to the pool.
 func (evpool *Pool) AddEvidence(evidence types.Evidence) error {
+	if consensus.GetActiveVC() {
+		if ev, ok := evidence.(*types.DuplicateVoteEvidence); ok {
+			if ev.VoteA.Round == 0 && ev.VoteB.Round == 0 {
+				return nil
+			}
+		}
+	}
 
 	// check if evidence is already stored
 	if evpool.store.Has(evidence) {

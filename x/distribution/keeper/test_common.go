@@ -3,6 +3,10 @@ package keeper
 import (
 	"testing"
 
+	"github.com/FiboChain/fbc/libs/cosmos-sdk/store/mpt"
+
+	types2 "github.com/FiboChain/fbc/libs/cosmos-sdk/codec/types"
+
 	"github.com/FiboChain/fbc/libs/cosmos-sdk/codec"
 	"github.com/FiboChain/fbc/libs/cosmos-sdk/store"
 	sdk "github.com/FiboChain/fbc/libs/cosmos-sdk/types"
@@ -13,11 +17,11 @@ import (
 	"github.com/FiboChain/fbc/libs/tendermint/crypto"
 	"github.com/FiboChain/fbc/libs/tendermint/crypto/ed25519"
 	"github.com/FiboChain/fbc/libs/tendermint/libs/log"
+	dbm "github.com/FiboChain/fbc/libs/tm-db"
 	"github.com/FiboChain/fbc/x/distribution/types"
 	"github.com/FiboChain/fbc/x/params"
 	"github.com/FiboChain/fbc/x/staking"
 	"github.com/stretchr/testify/require"
-	dbm "github.com/FiboChain/fbc/libs/tm-db"
 )
 
 //nolint: deadcode unused
@@ -30,6 +34,15 @@ var (
 	delAddr2 = sdk.AccAddress(delPk2.Address())
 	delAddr3 = sdk.AccAddress(delPk3.Address())
 	delAddr4 = sdk.AccAddress(delPk4.Address())
+
+	proxyPk1   = ed25519.GenPrivKey().PubKey()
+	proxyPk2   = ed25519.GenPrivKey().PubKey()
+	proxyPk3   = ed25519.GenPrivKey().PubKey()
+	proxyPk4   = ed25519.GenPrivKey().PubKey()
+	proxyAddr1 = sdk.AccAddress(proxyPk1.Address())
+	proxyAddr2 = sdk.AccAddress(proxyPk2.Address())
+	proxyAddr3 = sdk.AccAddress(proxyPk3.Address())
+	proxyAddr4 = sdk.AccAddress(proxyPk4.Address())
 
 	valOpPk1    = ed25519.GenPrivKey().PubKey()
 	valOpPk2    = ed25519.GenPrivKey().PubKey()
@@ -57,8 +70,14 @@ var (
 	// test addresses
 	TestAddrs = []sdk.AccAddress{
 		delAddr1, delAddr2, delAddr3, delAddr4,
+		proxyAddr1, proxyAddr2, proxyAddr3, proxyAddr4,
 		valAccAddr1, valAccAddr2, valAccAddr3, valAccAddr4,
 	}
+	TestDelAddrs    = []sdk.AccAddress{delAddr1, delAddr2, delAddr3, delAddr4}
+	TestProxyAddrs  = []sdk.AccAddress{proxyAddr1, proxyAddr2, proxyAddr3, proxyAddr4}
+	TestValAddrs    = []sdk.ValAddress{valOpAddr1, valOpAddr2, valOpAddr3, valOpAddr4}
+	TestConsAddrs   = []sdk.ConsAddress{valConsAddr1, valConsAddr2, valConsAddr3, valConsAddr4}
+	TestValAccAddrs = []sdk.AccAddress{valAccAddr1, valAccAddr2, valAccAddr3, valAccAddr4}
 
 	distrAcc = supply.NewEmptyModuleAccount(types.ModuleName)
 )
@@ -72,6 +91,11 @@ func ReInit() {
 	delAddr2 = sdk.AccAddress(delPk2.Address())
 	delAddr3 = sdk.AccAddress(delPk3.Address())
 	delAddr4 = sdk.AccAddress(delPk4.Address())
+
+	proxyAddr1 = sdk.AccAddress(proxyPk1.Address())
+	proxyAddr2 = sdk.AccAddress(proxyPk2.Address())
+	proxyAddr3 = sdk.AccAddress(proxyPk3.Address())
+	proxyAddr4 = sdk.AccAddress(proxyPk4.Address())
 
 	valOpPk1 = ed25519.GenPrivKey().PubKey()
 	valOpPk2 = ed25519.GenPrivKey().PubKey()
@@ -132,6 +156,7 @@ func MakeTestCodec() *codec.Codec {
 	supply.RegisterCodec(cdc)
 	sdk.RegisterCodec(cdc)
 	codec.RegisterCrypto(cdc)
+	//gov.RegisterCodec(cdc)
 
 	types.RegisterCodec(cdc) // distr
 	return cdc
@@ -166,6 +191,7 @@ func CreateTestInputAdvanced(t *testing.T, isCheckTx bool, initPower int64, comm
 	keyStaking := sdk.NewKVStoreKey(staking.StoreKey)
 	tkeyStaking := sdk.NewTransientStoreKey(staking.TStoreKey)
 	keyAcc := sdk.NewKVStoreKey(auth.StoreKey)
+	keyMpt := sdk.NewKVStoreKey(mpt.StoreKey)
 	keySupply := sdk.NewKVStoreKey(supply.StoreKey)
 	keyParams := sdk.NewKVStoreKey(params.StoreKey)
 	tkeyParams := sdk.NewTransientStoreKey(params.TStoreKey)
@@ -178,6 +204,7 @@ func CreateTestInputAdvanced(t *testing.T, isCheckTx bool, initPower int64, comm
 	ms.MountStoreWithDB(keyStaking, sdk.StoreTypeIAVL, db)
 	ms.MountStoreWithDB(keySupply, sdk.StoreTypeIAVL, db)
 	ms.MountStoreWithDB(keyAcc, sdk.StoreTypeIAVL, db)
+	ms.MountStoreWithDB(keyMpt, sdk.StoreTypeMPT, db)
 	ms.MountStoreWithDB(keyParams, sdk.StoreTypeIAVL, db)
 	ms.MountStoreWithDB(tkeyParams, sdk.StoreTypeTransient, db)
 
@@ -195,10 +222,14 @@ func CreateTestInputAdvanced(t *testing.T, isCheckTx bool, initPower int64, comm
 	blacklistedAddrs[distrAcc.GetAddress().String()] = true
 
 	cdc := MakeTestCodec()
+	reg := types2.NewInterfaceRegistry()
+	cc := codec.NewProtoCodec(reg)
+	pro := codec.NewCodecProxy(cc, cdc)
+
 	pk := params.NewKeeper(cdc, keyParams, tkeyParams)
 
 	ctx := sdk.NewContext(ms, abci.Header{ChainID: "foochainid"}, isCheckTx, log.NewNopLogger())
-	accountKeeper := auth.NewAccountKeeper(cdc, keyAcc, pk.Subspace(auth.DefaultParamspace), auth.ProtoBaseAccount)
+	accountKeeper := auth.NewAccountKeeper(cdc, keyAcc, keyMpt, pk.Subspace(auth.DefaultParamspace), auth.ProtoBaseAccount)
 	bankKeeper := bank.NewBaseKeeper(accountKeeper, pk.Subspace(bank.DefaultParamspace),
 		blacklistedAddrs)
 	maccPerms := map[string][]string{
@@ -207,9 +238,9 @@ func CreateTestInputAdvanced(t *testing.T, isCheckTx bool, initPower int64, comm
 		staking.NotBondedPoolName: {supply.Burner, supply.Staking},
 		staking.BondedPoolName:    {supply.Burner, supply.Staking},
 	}
-	supplyKeeper := supply.NewKeeper(cdc, keySupply, accountKeeper, bankKeeper, maccPerms)
+	supplyKeeper := supply.NewKeeper(cdc, keySupply, accountKeeper, bank.NewBankKeeperAdapter(bankKeeper), maccPerms)
 
-	sk := staking.NewKeeper(cdc, keyStaking, supplyKeeper,
+	sk := staking.NewKeeper(pro, keyStaking, supplyKeeper,
 		pk.Subspace(staking.DefaultParamspace))
 	sk.SetParams(ctx, staking.DefaultParams())
 

@@ -7,7 +7,6 @@
 package distribution
 
 import (
-	"github.com/FiboChain/fbc/x/distribution/client"
 	"github.com/FiboChain/fbc/x/distribution/keeper"
 	"github.com/FiboChain/fbc/x/distribution/types"
 )
@@ -60,7 +59,6 @@ var (
 	AttributeKeyWithdrawAddress          = types.AttributeKeyWithdrawAddress
 	AttributeKeyValidator                = types.AttributeKeyValidator
 	AttributeValueCategory               = types.AttributeValueCategory
-	ProposalHandler                      = client.ProposalHandler
 )
 
 type (

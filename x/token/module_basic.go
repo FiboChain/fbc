@@ -3,10 +3,10 @@ package token
 import (
 	"encoding/json"
 
+	"github.com/gorilla/mux"
 	"github.com/FiboChain/fbc/libs/cosmos-sdk/client/context"
 	"github.com/FiboChain/fbc/libs/cosmos-sdk/codec"
 	"github.com/FiboChain/fbc/libs/cosmos-sdk/types/module"
-	"github.com/gorilla/mux"
 	"github.com/spf13/cobra"
 
 	"github.com/FiboChain/fbc/x/token/client/cli"

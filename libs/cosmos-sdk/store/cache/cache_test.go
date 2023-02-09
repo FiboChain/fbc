@@ -9,8 +9,8 @@ import (
 	"github.com/FiboChain/fbc/libs/cosmos-sdk/store/types"
 
 	"github.com/FiboChain/fbc/libs/iavl"
-	"github.com/stretchr/testify/require"
 	dbm "github.com/FiboChain/fbc/libs/tm-db"
+	"github.com/stretchr/testify/require"
 )
 
 func TestGetOrSetStoreCache(t *testing.T) {

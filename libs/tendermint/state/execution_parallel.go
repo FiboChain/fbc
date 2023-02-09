@@ -2,16 +2,12 @@ package state
 
 import (
 	"fmt"
+	"github.com/FiboChain/fbc/libs/system/trace"
 	abci "github.com/FiboChain/fbc/libs/tendermint/abci/types"
 	"github.com/FiboChain/fbc/libs/tendermint/libs/log"
 	"github.com/FiboChain/fbc/libs/tendermint/proxy"
-	"github.com/FiboChain/fbc/libs/tendermint/trace"
 	"github.com/FiboChain/fbc/libs/tendermint/types"
 	dbm "github.com/FiboChain/fbc/libs/tm-db"
-)
-
-var (
-	FlagParalleledTx = "paralleled-tx"
 )
 
 func execBlockOnProxyAppAsync(

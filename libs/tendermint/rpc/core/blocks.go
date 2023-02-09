@@ -1,7 +1,15 @@
 package core
 
 import (
+	"errors"
 	"fmt"
+	"sort"
+
+	sdkerrors "github.com/FiboChain/fbc/libs/cosmos-sdk/types/errors"
+
+	nullblockindexer "github.com/FiboChain/fbc/libs/tendermint/state/indexer/block/null"
+
+	tmquery "github.com/FiboChain/fbc/libs/tendermint/libs/pubsub/query"
 
 	tmmath "github.com/FiboChain/fbc/libs/tendermint/libs/math"
 	ctypes "github.com/FiboChain/fbc/libs/tendermint/rpc/core/types"
@@ -28,7 +36,7 @@ func BlockchainInfo(ctx *rpctypes.Context, minHeight, maxHeight int64) (*ctypes.
 	}
 	env.Logger.Debug("BlockchainInfoHandler", "maxHeight", maxHeight, "minHeight", minHeight)
 
-	blockMetas := []*types.BlockMeta{}
+	blockMetas := make([]*types.BlockMeta, 0, maxHeight-minHeight+1)
 	for height := maxHeight; height >= minHeight; height-- {
 		blockMeta := env.BlockStore.LoadBlockMeta(height)
 		blockMetas = append(blockMetas, blockMeta)
@@ -37,6 +45,10 @@ func BlockchainInfo(ctx *rpctypes.Context, minHeight, maxHeight int64) (*ctypes.
 	return &ctypes.ResultBlockchainInfo{
 		LastHeight: env.BlockStore.Height(),
 		BlockMetas: blockMetas}, nil
+}
+
+func LatestBlockNumber() (int64, error) {
+	return env.BlockStore.Height(), nil
 }
 
 // error if either min or max are negative or min > max
@@ -80,7 +92,6 @@ func Block(ctx *rpctypes.Context, heightPtr *int64) (*ctypes.ResultBlock, error)
 	if err != nil {
 		return nil, err
 	}
-
 	block := env.BlockStore.LoadBlock(height)
 	blockMeta := env.BlockStore.LoadBlockMeta(height)
 	if blockMeta == nil {
@@ -154,4 +165,79 @@ func BlockResults(ctx *rpctypes.Context, heightPtr *int64) (*ctypes.ResultBlockR
 		ValidatorUpdates:      results.EndBlock.ValidatorUpdates,
 		ConsensusParamUpdates: results.EndBlock.ConsensusParamUpdates,
 	}, nil
+}
+
+// Header gets block header at a given height.
+// If no height is provided, it will fetch the latest header.
+// More: https://docs.tendermint.com/master/rpc/#/Info/header
+func BlockInfo(ctx *rpctypes.Context, heightPtr *int64) (*types.BlockMeta, error) {
+	height, err := getHeight(env.BlockStore.Height(), heightPtr)
+	if err != nil {
+		return nil, err
+	}
+
+	return env.BlockStore.LoadBlockMeta(height), nil
+}
+
+func BlockSearch(
+	ctx *rpctypes.Context,
+	query string,
+	pagePtr, perPagePtr *int,
+	orderBy string,
+) (*ctypes.ResultBlockSearch, error) {
+
+	// if index is disabled, return error
+	if _, ok := env.BlockIndexer.(*nullblockindexer.BlockerIndexer); ok {
+		return nil, errors.New("indexing is disabled")
+	}
+
+	q, err := tmquery.New(query)
+	if err != nil {
+		return nil, err
+	}
+
+	results, err := env.BlockIndexer.Search(ctx.Context(), q)
+	if err != nil {
+		return nil, err
+	}
+
+	// sort results (must be done before pagination)
+	switch orderBy {
+	case "desc", "":
+		sort.Slice(results, func(i, j int) bool { return results[i] > results[j] })
+
+	case "asc":
+		sort.Slice(results, func(i, j int) bool { return results[i] < results[j] })
+
+	default:
+		return nil, fmt.Errorf("expected order_by to be either `asc` or `desc` or empty: %w", sdkerrors.ErrInvalidRequest)
+	}
+
+	// paginate results
+	totalCount := len(results)
+	perPage := validatePerPage(*perPagePtr)
+
+	page, err := validatePage(*pagePtr, perPage, totalCount)
+	if err != nil {
+		return nil, err
+	}
+
+	skipCount := validateSkipCount(page, perPage)
+	pageSize := tmmath.MinInt(perPage, totalCount-skipCount)
+
+	apiResults := make([]*ctypes.ResultBlock, 0, pageSize)
+	for i := skipCount; i < skipCount+pageSize; i++ {
+		block := env.BlockStore.LoadBlock(results[i])
+		if block != nil {
+			blockMeta := env.BlockStore.LoadBlockMeta(block.Height)
+			if blockMeta != nil {
+				apiResults = append(apiResults, &ctypes.ResultBlock{
+					Block:   block,
+					BlockID: blockMeta.BlockID,
+				})
+			}
+		}
+	}
+
+	return &ctypes.ResultBlockSearch{Blocks: apiResults, TotalCount: totalCount}, nil
 }

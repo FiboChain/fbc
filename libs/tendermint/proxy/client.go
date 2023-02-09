@@ -1,11 +1,12 @@
 package proxy
 
 import (
+	"sync"
+
 	abcicli "github.com/FiboChain/fbc/libs/tendermint/abci/client"
 	"github.com/FiboChain/fbc/libs/tendermint/abci/example/counter"
 	"github.com/FiboChain/fbc/libs/tendermint/abci/example/kvstore"
 	"github.com/FiboChain/fbc/libs/tendermint/abci/types"
-	"sync"
 )
 
 // NewABCIClient returns newly connected client

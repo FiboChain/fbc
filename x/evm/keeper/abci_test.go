@@ -19,7 +19,7 @@ func (suite *KeeperTestSuite) TestBeginBlock() {
 	req := abci.RequestBeginBlock{
 		Header: abci.Header{
 			LastBlockId: abci.BlockID{
-				Hash: []byte("hash"),
+				Hash: ethcmn.FromHex(hex),
 			},
 			Height: 10,
 		},
@@ -44,7 +44,8 @@ func (suite *KeeperTestSuite) TestBeginBlock() {
 
 	suite.Require().Equal(int64(initialConsumed), int64(suite.ctx.GasMeter().GasConsumed()))
 
-	lastHeight, found := suite.app.EvmKeeper.GetBlockHash(suite.ctx, req.Header.LastBlockId.Hash)
+	blockHash := ethcmn.BytesToHash(req.Header.LastBlockId.Hash)
+	lastHeight, found := suite.app.EvmKeeper.GetBlockHeight(suite.ctx, blockHash)
 	suite.Require().True(found)
 	suite.Require().Equal(int64(9), lastHeight)
 }
@@ -67,6 +68,7 @@ func (suite *KeeperTestSuite) TestEndBlock() {
 func (suite *KeeperTestSuite) TestEndBlockWatcher() {
 	// update the counters
 	suite.app.EvmKeeper.Bloom.SetInt64(10)
+	suite.app.EvmKeeper.Watcher.SetFirstUse(true)
 
 	store := suite.ctx.KVStore(suite.app.EvmKeeper.GetStoreKey())
 	store.Set(types.GetContractDeploymentWhitelistMemberKey(suite.address.Bytes()), []byte(""))
@@ -74,7 +76,7 @@ func (suite *KeeperTestSuite) TestEndBlockWatcher() {
 	viper.Set(watcher.FlagFastQueryLru, 100)
 	_ = suite.app.EvmKeeper.EndBlock(suite.ctx, abci.RequestEndBlock{Height: 10})
 	suite.app.Commit(abci.RequestCommit{})
-	time.Sleep(time.Millisecond)
+	time.Sleep(100 * time.Millisecond)
 	querier := watcher.NewQuerier()
 	res1 := querier.HasContractDeploymentWhitelist(suite.address.Bytes())
 	res2 := querier.HasContractBlockedList(suite.address.Bytes())

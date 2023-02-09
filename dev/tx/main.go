@@ -21,7 +21,7 @@ const (
 	abiFile = "../client/contracts/counter/counter.abi"
 	binFile = "../client/contracts/counter/counter.bin"
 
-	ChainId  int64  = 67        //  oec
+	ChainId  int64  = 1230        //  fbc
 	GasPrice int64  = 100000000 // 0.1 gwei
 	GasLimit uint64 = 3000000
 )
@@ -56,7 +56,7 @@ func init() {
 
 	cdc = amino.NewCodec()
 	mempool.RegisterMessages(cdc)
-	counterContract = newContract("counter", "", abiFile, binFile)
+	counterContract = newContract("counter", "0x45dD91b0289E60D89Cec94dF0Aac3a2f539c514a", abiFile, binFile)
 	b, _ := hex.DecodeString(hexNodeKey)
 	copy(nodePrivKey[:], b)
 	nodeKey = nodePrivKey.PubKey().Bytes()

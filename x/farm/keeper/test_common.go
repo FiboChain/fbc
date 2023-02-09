@@ -9,9 +9,11 @@ import (
 
 	"github.com/FiboChain/fbc/libs/cosmos-sdk/codec"
 	"github.com/FiboChain/fbc/libs/cosmos-sdk/store"
+	"github.com/FiboChain/fbc/libs/cosmos-sdk/store/mpt"
 	sdk "github.com/FiboChain/fbc/libs/cosmos-sdk/types"
 	"github.com/FiboChain/fbc/libs/cosmos-sdk/x/auth"
 	"github.com/FiboChain/fbc/libs/cosmos-sdk/x/bank"
+	"github.com/FiboChain/fbc/libs/cosmos-sdk/x/staking"
 	"github.com/FiboChain/fbc/libs/cosmos-sdk/x/supply"
 	abci "github.com/FiboChain/fbc/libs/tendermint/abci/types"
 	"github.com/FiboChain/fbc/libs/tendermint/libs/log"
@@ -91,6 +93,7 @@ func GetKeeper(t *testing.T) (sdk.Context, MockFarmKeeper) {
 	keyFarm := sdk.NewKVStoreKey(types.StoreKey)
 	tkeyFarm := sdk.NewTransientStoreKey(types.TStoreKey)
 	keyAcc := sdk.NewKVStoreKey(auth.StoreKey)
+	keyMpt := sdk.NewKVStoreKey(mpt.StoreKey)
 	keyParams := sdk.NewKVStoreKey(params.StoreKey)
 	tkeyParams := sdk.NewTransientStoreKey(params.TStoreKey)
 	keySupply := sdk.NewKVStoreKey(supply.StoreKey)
@@ -99,6 +102,7 @@ func GetKeeper(t *testing.T) (sdk.Context, MockFarmKeeper) {
 	keySwap := sdk.NewKVStoreKey(swaptypes.StoreKey)
 	keyEvm := sdk.NewKVStoreKey(evmtypes.StoreKey)
 	keyGov := sdk.NewKVStoreKey(govtypes.StoreKey)
+	keyStaking := sdk.NewKVStoreKey(types.StoreKey)
 
 	// 0.2 init db
 	db := dbm.NewMemDB()
@@ -106,6 +110,7 @@ func GetKeeper(t *testing.T) (sdk.Context, MockFarmKeeper) {
 	ms.MountStoreWithDB(tkeyFarm, sdk.StoreTypeTransient, nil)
 	ms.MountStoreWithDB(keyFarm, sdk.StoreTypeIAVL, db)
 	ms.MountStoreWithDB(keyAcc, sdk.StoreTypeIAVL, db)
+	ms.MountStoreWithDB(keyMpt, sdk.StoreTypeMPT, db)
 	ms.MountStoreWithDB(keyParams, sdk.StoreTypeIAVL, db)
 	ms.MountStoreWithDB(tkeyParams, sdk.StoreTypeTransient, db)
 	ms.MountStoreWithDB(keySupply, sdk.StoreTypeIAVL, db)
@@ -117,7 +122,7 @@ func GetKeeper(t *testing.T) (sdk.Context, MockFarmKeeper) {
 
 	// 0.3 init context
 	ctx := sdk.NewContext(ms, abci.Header{ChainID: TestChainID}, false, log.NewNopLogger())
-	ctx = ctx.WithConsensusParams(
+	ctx.SetConsensusParams(
 		&abci.ConsensusParams{
 			Validator: &abci.ValidatorParams{
 				PubKeyTypes: []string{tmtypes.ABCIPubKeyTypeEd25519},
@@ -140,7 +145,7 @@ func GetKeeper(t *testing.T) (sdk.Context, MockFarmKeeper) {
 	pk := params.NewKeeper(cdc, keyParams, tkeyParams)
 
 	// 1.2 init account keeper
-	ak := auth.NewAccountKeeper(cdc, keyAcc, pk.Subspace(auth.DefaultParamspace), auth.ProtoBaseAccount)
+	ak := auth.NewAccountKeeper(cdc, keyAcc, keyMpt, pk.Subspace(auth.DefaultParamspace), auth.ProtoBaseAccount)
 
 	// 1.3 init bank keeper
 	feeCollectorAcc := supply.NewEmptyModuleAccount(auth.FeeCollectorName)
@@ -172,7 +177,7 @@ func GetKeeper(t *testing.T) (sdk.Context, MockFarmKeeper) {
 		swap.ModuleName:           {supply.Burner, supply.Minter},
 		govtypes.ModuleName:       nil,
 	}
-	sk := supply.NewKeeper(cdc, keySupply, ak, bk, maccPerms)
+	sk := supply.NewKeeper(cdc, keySupply, ak, bank.NewBankKeeperAdapter(bk), maccPerms)
 	sk.SetSupply(ctx, supply.NewSupply(sdk.NewDecCoinsFromDec(sdk.DefaultBondDenom, sdk.NewDec(1000000000))))
 	sk.SetModuleAccount(ctx, feeCollectorAcc)
 	sk.SetModuleAccount(ctx, farmAcc)
@@ -180,12 +185,14 @@ func GetKeeper(t *testing.T) (sdk.Context, MockFarmKeeper) {
 	sk.SetModuleAccount(ctx, mintFarmingAccount)
 	sk.SetModuleAccount(ctx, swapModuleAccount)
 
+	stk := staking.NewKeeper(cdc, keyStaking, sk, pk.Subspace(staking.DefaultParamspace))
+
 	// 1.5 init token keeper
 	tk := token.NewKeeper(bk, pk.Subspace(token.DefaultParamspace), auth.FeeCollectorName, sk, keyToken, keyLock, cdc, false, ak)
 
 	// 1.6 init swap keeper
 	swapKeeper := swap.NewKeeper(sk, tk, cdc, keySwap, pk.Subspace(swaptypes.DefaultParamspace))
-	evmKeeper := evm.NewKeeper(cdc, keyEvm, pk.Subspace(evmtypes.DefaultParamspace), &ak, sk, bk, log.NewNopLogger())
+	evmKeeper := evm.NewKeeper(cdc, keyEvm, pk.Subspace(evmtypes.DefaultParamspace), &ak, sk, bk, stk, log.NewNopLogger())
 
 	// 1.7 init farm keeper
 	fk := NewKeeper(auth.FeeCollectorName, sk, tk, swapKeeper, *evmKeeper, pk.Subspace(types.DefaultParamspace), keyFarm, cdc)

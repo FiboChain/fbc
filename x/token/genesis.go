@@ -9,7 +9,7 @@ import (
 	"github.com/FiboChain/fbc/x/token/types"
 )
 
-// default owner of fibo
+// default owner of okt
 const DefaultTokenOwner = "fb18rrc500xu2haw7vyksqlj2lfp9xex2hczv3jkx"
 
 // all state that must be provided in genesis file
@@ -24,14 +24,14 @@ type GenesisState struct {
 func defaultGenesisState() GenesisState {
 	return GenesisState{
 		Params:       types.DefaultParams(),
-		Tokens:       []types.Token{defaultGenesisStateFIBO()},
+		Tokens:       []types.Token{defaultGenesisStateOKT()},
 		LockedAssets: nil,
 		LockedFees:   nil,
 	}
 }
 
-// default fibo information
-func defaultGenesisStateFIBO() types.Token {
+// default okt information
+func defaultGenesisStateOKT() types.Token {
 	addr, err := sdk.AccAddressFromBech32(DefaultTokenOwner)
 	if err != nil {
 		panic(err)

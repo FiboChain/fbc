@@ -43,6 +43,8 @@ func BroadcastTxSync(ctx *rpctypes.Context, tx types.Tx) (*ctypes.ResultBroadcas
 	}
 	res := <-resCh
 	r := res.GetCheckTx()
+	// reset r.Data for compatibility with cosmwasmJS
+	r.Data = nil
 	return &ctypes.ResultBroadcastTx{
 		Code:      r.Code,
 		Data:      r.Data,
@@ -151,6 +153,12 @@ func NumUnconfirmedTxs(ctx *rpctypes.Context) (*ctypes.ResultUnconfirmedTxs, err
 		TotalBytes: env.Mempool.TxsBytes()}, nil
 }
 
+func TxSimulateGasCost(ctx *rpctypes.Context, hash string) (*ctypes.ResponseTxSimulateGas, error) {
+	return &ctypes.ResponseTxSimulateGas{
+		GasCost: env.Mempool.GetTxSimulateGas(hash),
+	}, nil
+}
+
 func UserUnconfirmedTxs(address string, limit int) (*ctypes.ResultUserUnconfirmedTxs, error) {
 	txs := env.Mempool.ReapUserTxs(address, limit)
 	return &ctypes.ResultUserUnconfirmedTxs{
@@ -183,4 +191,9 @@ func GetPendingNonce(address string) (*ctypes.ResultPendingNonce, bool) {
 	return &ctypes.ResultPendingNonce{
 		Nonce: nonce,
 	}, true
+}
+
+func GetEnableDeleteMinGPTx(ctx *rpctypes.Context) (*ctypes.ResultEnableDeleteMinGPTx, error) {
+	status := env.Mempool.GetEnableDeleteMinGPTx()
+	return &ctypes.ResultEnableDeleteMinGPTx{Enable: status}, nil
 }

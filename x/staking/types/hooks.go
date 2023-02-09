@@ -5,7 +5,7 @@ import (
 )
 
 // MultiStakingHooks combines multiple staking hooks, all hook functions are run in array sequence
-// TODO:need to trim the staking hooks as the fbchain design
+// TODO:need to trim the staking hooks as the fbchaindesign
 type MultiStakingHooks []StakingHooks
 
 // NewMultiStakingHooks creates a new object of MultiStakingHooks

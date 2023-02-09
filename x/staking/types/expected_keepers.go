@@ -83,7 +83,19 @@ type StakingHooks interface {
 	// Must be called when a validator begins unbonding
 	AfterValidatorBeginUnbonding(ctx sdk.Context, consAddr sdk.ConsAddress, valAddr sdk.ValAddress)
 
-	// required by fbchain
+	// required by fibochain
 	// Must be called when a validator is destroyed by tx
 	AfterValidatorDestroyed(ctx sdk.Context, consAddr sdk.ConsAddress, valAddr sdk.ValAddress)
+
+	// Must be called when a delegation is created
+	BeforeDelegationCreated(ctx sdk.Context, delAddr sdk.AccAddress, valAddrs []sdk.ValAddress)
+	// Must be called when a delegation's shares are modified
+	BeforeDelegationSharesModified(ctx sdk.Context, delAddr sdk.AccAddress, valAddrs []sdk.ValAddress)
+	// Must be called when a delegation is removed
+	BeforeDelegationRemoved(ctx sdk.Context, delAddr sdk.AccAddress, valAddr sdk.ValAddress)
+	// Must be called when a delegation is modified
+	AfterDelegationModified(ctx sdk.Context, delAddr sdk.AccAddress, valAddrs []sdk.ValAddress)
+	//BeforeValidatorSlashed(ctx sdk.Context, valAddr sdk.ValAddress, fraction sdk.Dec)
+	// Check modules enabled
+	CheckEnabled(ctx sdk.Context) bool
 }

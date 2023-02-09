@@ -5,16 +5,16 @@ import (
 	"math"
 	"testing"
 
-	"github.com/FiboChain/fbc/libs/tendermint/crypto/etherhash"
-	"github.com/FiboChain/fbc/libs/tendermint/crypto/tmhash"
-	tmrand "github.com/FiboChain/fbc/libs/tendermint/libs/rand"
-	ctest "github.com/FiboChain/fbc/libs/tendermint/libs/test"
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/FiboChain/fbc/libs/tendermint/abci/types"
 
 	"github.com/stretchr/testify/assert"
+
+	"github.com/FiboChain/fbc/libs/tendermint/crypto/etherhash"
+	"github.com/FiboChain/fbc/libs/tendermint/crypto/tmhash"
+	tmrand "github.com/FiboChain/fbc/libs/tendermint/libs/rand"
+	ctest "github.com/FiboChain/fbc/libs/tendermint/libs/test"
 )
 
 func makeTxs(cnt, size int) Txs {

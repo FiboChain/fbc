@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
+
 	"github.com/FiboChain/fbc/app/crypto/ethsecp256k1"
 	ethermint "github.com/FiboChain/fbc/app/types"
 	"github.com/FiboChain/fbc/libs/cosmos-sdk/codec"
@@ -24,6 +25,7 @@ import (
 	"github.com/FiboChain/fbc/x/staking"
 	staking_keeper "github.com/FiboChain/fbc/x/staking/keeper"
 	staking_types "github.com/FiboChain/fbc/x/staking/types"
+
 	"github.com/stretchr/testify/suite"
 )
 
@@ -45,7 +47,7 @@ type InnerTxTestSuite struct {
 	suite.Suite
 
 	ctx     sdk.Context
-	app     *FBchainApp
+	app     *FBChainApp
 	stateDB *evm_types.CommitStateDB
 	codec   *codec.Codec
 
@@ -446,7 +448,7 @@ func (suite *InnerTxTestSuite) TestMsgSend() {
 					header := abci.Header{Height: int64(i + 2), ProposerAddress: sdk.ConsAddress(valpub.Address())}
 					req := abci.RequestBeginBlock{Header: header,
 						LastCommitInfo: abci.LastCommitInfo{Votes: votes}}
-					suite.ctx = suite.ctx.WithBlockHeader(header)
+					suite.ctx.SetBlockHeader(header)
 					suite.app.BeginBlocker(suite.ctx, req)
 					suite.app.EndBlocker(suite.ctx, abci.RequestEndBlock{})
 				}
@@ -491,7 +493,7 @@ func (suite *InnerTxTestSuite) TestMsgSend() {
 					header := abci.Header{Height: int64(i + 2), ProposerAddress: sdk.ConsAddress(valpub.Address())}
 					req := abci.RequestBeginBlock{Header: header,
 						LastCommitInfo: abci.LastCommitInfo{Votes: votes}}
-					suite.ctx = suite.ctx.WithBlockHeader(header)
+					suite.ctx.SetBlockHeader(header)
 					suite.app.BeginBlocker(suite.ctx, req)
 					suite.app.EndBlocker(suite.ctx, abci.RequestEndBlock{})
 				}
@@ -570,7 +572,7 @@ func (suite *InnerTxTestSuite) TestMsgSend() {
 			normal()
 			//nolint
 			tc.prepare()
-			suite.ctx = suite.ctx.WithGasMeter(sdk.NewInfiniteGasMeter())
+			suite.ctx.SetGasMeter(sdk.NewInfiniteGasMeter())
 			msgs := tx.GetMsgs()
 			for _, msg := range msgs {
 				_, err := suite.handler(suite.ctx, msg)

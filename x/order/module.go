@@ -3,13 +3,13 @@ package order
 import (
 	"encoding/json"
 
+	"github.com/gorilla/mux"
 	"github.com/FiboChain/fbc/libs/cosmos-sdk/client/context"
 	"github.com/FiboChain/fbc/libs/cosmos-sdk/codec"
 	sdk "github.com/FiboChain/fbc/libs/cosmos-sdk/types"
 	"github.com/FiboChain/fbc/libs/cosmos-sdk/types/module"
 	auth "github.com/FiboChain/fbc/libs/cosmos-sdk/x/auth/types"
 	abci "github.com/FiboChain/fbc/libs/tendermint/abci/types"
-	"github.com/gorilla/mux"
 	"github.com/spf13/cobra"
 
 	"github.com/FiboChain/fbc/x/common/version"

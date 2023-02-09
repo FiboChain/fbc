@@ -6,8 +6,8 @@ import (
 
 // RegisterCodec registers concrete types on the Amino codec
 func RegisterCodec(cdc *codec.Codec) {
-	cdc.RegisterConcrete(MsgNewOrders{}, "fbchain/order/MsgNew", nil)
-	cdc.RegisterConcrete(MsgCancelOrders{}, "fbchain/order/MsgCancel", nil)
+	cdc.RegisterConcrete(MsgNewOrders{}, "fibochain/order/MsgNew", nil)
+	cdc.RegisterConcrete(MsgCancelOrders{}, "fibochain/order/MsgCancel", nil)
 }
 
 // ModuleCdc generic sealed codec to be used throughout this module

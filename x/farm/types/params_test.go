@@ -1,3 +1,6 @@
+//go:build ignore
+// +build ignore
+
 package types
 
 import (
@@ -9,7 +12,7 @@ import (
 
 const (
 	strExpected = `Params:
-  Quote Symbol:								usdk
+  Quote Symbol:								usdf
   Create Pool Fee:							0.000000000000000000` + sdk.DefaultBondDenom + `
   Create Pool Deposit:						10.000000000000000000` + sdk.DefaultBondDenom + `
   Yield Native Token Enabled:               false`

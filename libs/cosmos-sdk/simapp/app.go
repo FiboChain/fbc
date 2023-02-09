@@ -4,6 +4,8 @@ import (
 	"io"
 	"os"
 
+	"github.com/FiboChain/fbc/libs/cosmos-sdk/store/mpt"
+
 	abci "github.com/FiboChain/fbc/libs/tendermint/abci/types"
 	"github.com/FiboChain/fbc/libs/tendermint/libs/log"
 	tmos "github.com/FiboChain/fbc/libs/tendermint/libs/os"
@@ -145,7 +147,7 @@ func NewSimApp(
 	keys := sdk.NewKVStoreKeys(
 		bam.MainStoreKey, auth.StoreKey, staking.StoreKey,
 		supply.StoreKey, mint.StoreKey, distr.StoreKey, slashing.StoreKey,
-		gov.StoreKey, params.StoreKey, upgrade.StoreKey, evidence.StoreKey,
+		gov.StoreKey, params.StoreKey, upgrade.StoreKey, evidence.StoreKey, mpt.StoreKey,
 	)
 	tkeys := sdk.NewTransientStoreKeys(params.TStoreKey)
 
@@ -172,13 +174,13 @@ func NewSimApp(
 
 	// add keepers
 	app.AccountKeeper = auth.NewAccountKeeper(
-		app.cdc, keys[auth.StoreKey], app.subspaces[auth.ModuleName], auth.ProtoBaseAccount,
+		app.cdc, keys[auth.StoreKey], keys[mpt.StoreKey], app.subspaces[auth.ModuleName], auth.ProtoBaseAccount,
 	)
 	app.BankKeeper = bank.NewBaseKeeper(
 		app.AccountKeeper, app.subspaces[bank.ModuleName], app.BlacklistedAccAddrs(),
 	)
 	app.SupplyKeeper = supply.NewKeeper(
-		app.cdc, keys[supply.StoreKey], app.AccountKeeper, app.BankKeeper, maccPerms,
+		app.cdc, keys[supply.StoreKey], app.AccountKeeper, bank.NewBankKeeperAdapter(app.BankKeeper), maccPerms,
 	)
 	stakingKeeper := staking.NewKeeper(
 		app.cdc, keys[staking.StoreKey], app.SupplyKeeper, app.subspaces[staking.ModuleName],
@@ -230,7 +232,7 @@ func NewSimApp(
 	app.mm = module.NewManager(
 		genutil.NewAppModule(app.AccountKeeper, app.StakingKeeper, app.BaseApp.DeliverTx),
 		auth.NewAppModule(app.AccountKeeper),
-		bank.NewAppModule(app.BankKeeper, app.AccountKeeper),
+		bank.NewAppModule(app.BankKeeper, app.AccountKeeper, app.SupplyKeeper),
 		crisis.NewAppModule(&app.CrisisKeeper),
 		supply.NewAppModule(app.SupplyKeeper, app.AccountKeeper),
 		gov.NewAppModule(app.GovKeeper, app.AccountKeeper, app.SupplyKeeper),
@@ -265,7 +267,7 @@ func NewSimApp(
 	// transactions
 	app.sm = module.NewSimulationManager(
 		auth.NewAppModule(app.AccountKeeper),
-		bank.NewAppModule(app.BankKeeper, app.AccountKeeper),
+		bank.NewAppModule(app.BankKeeper, app.AccountKeeper, app.SupplyKeeper),
 		supply.NewAppModule(app.SupplyKeeper, app.AccountKeeper),
 		gov.NewAppModule(app.GovKeeper, app.AccountKeeper, app.SupplyKeeper),
 		mint.NewAppModule(app.MintKeeper),

@@ -9,11 +9,15 @@ import (
 	"testing"
 	"time"
 
+	fibochaincodec "github.com/FiboChain/fbc/app/codec"
+	"github.com/FiboChain/fbc/libs/cosmos-sdk/types/module"
+	ethcommon "github.com/ethereum/go-ethereum/common"
+
+	ethcrypto "github.com/ethereum/go-ethereum/crypto"
+
 	"github.com/FiboChain/fbc/libs/cosmos-sdk/x/auth"
 	"github.com/FiboChain/fbc/libs/tendermint/libs/log"
 
-	"github.com/ethereum/go-ethereum/common"
-	ethcmn "github.com/ethereum/go-ethereum/common"
 	"github.com/FiboChain/fbc/app"
 	"github.com/FiboChain/fbc/app/crypto/ethsecp256k1"
 	ethermint "github.com/FiboChain/fbc/app/types"
@@ -23,7 +27,10 @@ import (
 	"github.com/FiboChain/fbc/libs/tendermint/crypto/tmhash"
 	"github.com/FiboChain/fbc/x/evm"
 	"github.com/FiboChain/fbc/x/evm/types"
+	evmtypes "github.com/FiboChain/fbc/x/evm/types"
 	"github.com/FiboChain/fbc/x/evm/watcher"
+	"github.com/ethereum/go-ethereum/common"
+	ethcmn "github.com/ethereum/go-ethereum/common"
 	jsoniter "github.com/json-iterator/go"
 	"github.com/spf13/viper"
 	"github.com/status-im/keycard-go/hexutils"
@@ -49,7 +56,7 @@ func calcHash(kvs []KV) []byte {
 
 type WatcherTestSt struct {
 	ctx     sdk.Context
-	app     *app.FBchainApp
+	app     *app.FBChainApp
 	handler sdk.Handler
 }
 
@@ -58,7 +65,7 @@ func setupTest() *WatcherTestSt {
 	checkTx := false
 	chain_id := "ethermint-3"
 	viper.Set(watcher.FlagFastQuery, true)
-	viper.Set(watcher.FlagDBBackend, "memdb")
+	viper.Set(sdk.FlagDBBackend, "memdb")
 	viper.Set(watcher.FlagCheckWd, true)
 
 	w.app = app.Setup(checkTx)
@@ -72,7 +79,6 @@ func setupTest() *WatcherTestSt {
 	params.EnableCreate = true
 	params.EnableCall = true
 	w.app.EvmKeeper.SetParams(w.ctx, params)
-
 	return w
 }
 
@@ -109,10 +115,10 @@ func checkWD(wdBytes []byte, w *WatcherTestSt) {
 func testWatchData(t *testing.T, w *WatcherTestSt) {
 	// produce WatchData
 	w.app.EvmKeeper.Watcher.Commit()
-	time.Sleep(time.Second * 1)
+	time.Sleep(time.Millisecond)
 
 	// get WatchData
-	wdFunc := w.app.EvmKeeper.Watcher.GetWatchDataFunc()
+	wdFunc := w.app.EvmKeeper.Watcher.CreateWatchDataGenerator()
 	wd, err := wdFunc()
 	require.Nil(t, err)
 	require.NotEmpty(t, wd)
@@ -125,8 +131,8 @@ func testWatchData(t *testing.T, w *WatcherTestSt) {
 	// use WatchData
 	wData, err := w.app.EvmKeeper.Watcher.UnmarshalWatchData(wd)
 	require.Nil(t, err)
-	w.app.EvmKeeper.Watcher.UseWatchData(wData)
-	time.Sleep(time.Second * 1)
+	w.app.EvmKeeper.Watcher.ApplyWatchData(wData)
+	time.Sleep(time.Millisecond)
 
 	cWd := getDBKV(store)
 
@@ -177,7 +183,7 @@ func TestHandleMsgEthereumTx(t *testing.T) {
 			w = setupTest() // reset
 			//nolint
 			tc.malleate()
-			w.ctx = w.ctx.WithGasMeter(sdk.NewInfiniteGasMeter())
+			w.ctx.SetGasMeter(sdk.NewInfiniteGasMeter())
 			res, err := w.handler(w.ctx, tx)
 
 			//nolint
@@ -223,9 +229,9 @@ func TestMsgEthereumTxByWatcher(t *testing.T) {
 			w = setupTest() // reset
 			//nolint
 			tc.malleate()
-			w.ctx = w.ctx.WithIsCheckTx(true)
-			w.ctx = w.ctx.WithGasMeter(sdk.NewInfiniteGasMeter())
-			w.ctx = w.ctx.WithFrom(from.String())
+			w.ctx.SetIsCheckTx(true)
+			w.ctx.SetGasMeter(sdk.NewInfiniteGasMeter())
+			w.ctx.SetFrom(from.String())
 			res, err := w.handler(w.ctx, tx)
 
 			//nolint
@@ -351,41 +357,139 @@ func TestDuplicateAddress(t *testing.T) {
 
 func TestDuplicateWatchMessage(t *testing.T) {
 	w := setupTest()
-	a1 := newMockAccount(1, 1)
-	w.app.EvmKeeper.Watcher.SaveAccount(a1, true)
-	a2 := newMockAccount(1, 2)
-	w.app.EvmKeeper.Watcher.SaveAccount(a2, true)
-	w.app.EvmKeeper.Watcher.Commit()
-	time.Sleep(time.Second)
+	w.app.EvmKeeper.Watcher.NewHeight(1, common.Hash{}, abci.Header{Height: 1})
+	// init store
 	store := watcher.InstanceOfWatchStore()
+	flushDB(store)
+	privKey := secp256k1.GenPrivKey()
+	pubKey := privKey.PubKey()
+	addr := sdk.AccAddress(pubKey.Address())
+
+	balance := sdk.NewCoins(sdk.NewCoin(sdk.DefaultBondDenom, sdk.NewInt(1)))
+	a1 := &ethermint.EthAccount{
+		BaseAccount: auth.NewBaseAccount(addr, balance, pubKey, 1, 1),
+		CodeHash:    ethcrypto.Keccak256(nil),
+	}
+	w.app.EvmKeeper.Watcher.SaveAccount(a1)
+	a2 := &ethermint.EthAccount{
+		BaseAccount: auth.NewBaseAccount(addr, balance, pubKey, 1, 2),
+		CodeHash:    ethcrypto.Keccak256(nil),
+	}
+	w.app.EvmKeeper.Watcher.SaveAccount(a2)
+	w.app.EvmKeeper.Watcher.Commit()
+	time.Sleep(time.Millisecond)
 	pWd := getDBKV(store)
 	require.Equal(t, 1, len(pWd))
 }
 
 func TestWriteLatestMsg(t *testing.T) {
 	viper.Set(watcher.FlagFastQuery, true)
-	viper.Set(watcher.FlagDBBackend, "memdb")
+	viper.Set(sdk.FlagDBBackend, "memdb")
 	w := watcher.NewWatcher(log.NewTMLogger(os.Stdout))
-	w.SetWatchDataFunc()
-
-	a1 := newMockAccount(1, 1)
-	a11 := newMockAccount(1, 2)
-	a111 := newMockAccount(1, 3)
-	w.SaveAccount(a1, true)
-	w.SaveAccount(a11, true)
-	w.SaveAccount(a111, true)
-	// waiting 1 second for initializing jobChan
-	time.Sleep(time.Second)
-	w.Commit()
-	time.Sleep(time.Second)
+	w.SetWatchDataManager()
+	w.NewHeight(1, common.Hash{}, abci.Header{Height: 1})
+	// init store
 	store := watcher.InstanceOfWatchStore()
+	flushDB(store)
+
+	privKey := secp256k1.GenPrivKey()
+	pubKey := privKey.PubKey()
+	addr := sdk.AccAddress(pubKey.Address())
+
+	balance := sdk.NewCoins(sdk.NewCoin(sdk.DefaultBondDenom, sdk.NewInt(1)))
+	a1 := &ethermint.EthAccount{
+		BaseAccount: auth.NewBaseAccount(addr, balance, pubKey, 1, 1),
+		CodeHash:    ethcrypto.Keccak256(nil),
+	}
+	a11 := &ethermint.EthAccount{
+		BaseAccount: auth.NewBaseAccount(addr, balance, pubKey, 1, 2),
+		CodeHash:    ethcrypto.Keccak256(nil),
+	}
+	a111 := &ethermint.EthAccount{
+		BaseAccount: auth.NewBaseAccount(addr, balance, pubKey, 1, 3),
+		CodeHash:    ethcrypto.Keccak256(nil),
+	}
+
+	w.SaveAccount(a1)
+	w.SaveAccount(a11)
+	w.SaveAccount(a111)
+	// waiting 1 second for initializing jobChan
+	time.Sleep(time.Millisecond)
+	w.Commit()
+	time.Sleep(time.Millisecond)
 	pWd := getDBKV(store)
 	require.Equal(t, 1, len(pWd))
 
 	m := watcher.NewMsgAccount(a1)
 	v, err := store.Get(m.GetKey())
 	require.NoError(t, err)
-	mm := make(map[string]interface{})
-	json.Unmarshal(v, &mm)
-	require.Equal(t, 3, int(mm["Seq"].(float64)))
+	has := store.Has(m.GetKey())
+	require.Equal(t, has, true)
+	ethAccount, err := watcher.DecodeAccount(v)
+	require.NoError(t, err)
+	//test decode error
+	vv := v[:1]
+	_, err = watcher.DecodeAccount(vv)
+	require.Error(t, err)
+	require.Equal(t, uint64(3), ethAccount.GetSequence())
+	p := store.GetEvmParams()
+	expectedParams := evmtypes.Params{
+		EnableCreate:                      false,
+		EnableCall:                        false,
+		EnableContractDeploymentWhitelist: false,
+		EnableContractBlockedList:         false,
+		MaxGasLimitPerTx:                  30000000,
+	}
+	err = ParamsDeepEqual(expectedParams, p)
+	require.NoError(t, err)
+	expectedParams2 := evmtypes.Params{
+		EnableCreate:                      true,
+		EnableCall:                        true,
+		EnableContractDeploymentWhitelist: true,
+		EnableContractBlockedList:         true,
+		MaxGasLimitPerTx:                  20000000,
+	}
+	store.SetEvmParams(expectedParams2)
+	p = store.GetEvmParams()
+	err = ParamsDeepEqual(p, expectedParams2)
+	require.NoError(t, err)
+}
+
+func ParamsDeepEqual(src, dst evmtypes.Params) error {
+	if src.EnableCreate != dst.EnableCreate ||
+		src.EnableCall != dst.EnableCall ||
+		src.EnableContractDeploymentWhitelist != dst.EnableContractDeploymentWhitelist ||
+		src.EnableContractBlockedList != dst.EnableContractBlockedList {
+		return fmt.Errorf("params not fit")
+	}
+	return nil
+}
+
+func TestDeliverRealTx(t *testing.T) {
+	w := setupTest()
+	bytecode := ethcommon.FromHex("0x12")
+	tx := evmtypes.NewMsgEthereumTx(0, nil, big.NewInt(0), uint64(1000000), big.NewInt(10000), bytecode)
+	privKey, _ := ethsecp256k1.GenerateKey()
+	err := tx.Sign(big.NewInt(3), privKey.ToECDSA())
+	require.NoError(t, err)
+	codecProxy, _ := fibochaincodec.MakeCodecSuit(module.NewBasicManager())
+	w.app.EvmKeeper.Watcher.RecordTxAndFailedReceipt(tx, nil, evm.TxDecoder(codecProxy))
+}
+
+func TestBaiscDBOpt(t *testing.T) {
+	viper.Set(watcher.FlagFastQuery, true)
+	viper.Set(sdk.FlagDBBackend, "memdb")
+	store := watcher.InstanceOfWatchStore()
+	store.Set([]byte("test01"), []byte("value01"))
+	v, err := store.Get([]byte("test01"))
+	require.NoError(t, err)
+	require.Equal(t, v, []byte("value01"))
+	v, err = store.Get([]byte("test no key"))
+	require.Equal(t, v, []byte(nil))
+	require.NoError(t, err)
+	r, err := store.GetUnsafe([]byte("test01"), func(value []byte) (interface{}, error) {
+		return nil, nil
+	})
+	require.Equal(t, r, nil)
+	require.NoError(t, err)
 }

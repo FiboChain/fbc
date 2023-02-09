@@ -7,6 +7,10 @@ import (
 	"math/big"
 	"strings"
 
+	types2 "github.com/FiboChain/fbc/libs/cosmos-sdk/store/types"
+	"github.com/FiboChain/fbc/libs/system/trace"
+	"github.com/FiboChain/fbc/libs/tendermint/types"
+
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
@@ -16,7 +20,6 @@ import (
 	sdk "github.com/FiboChain/fbc/libs/cosmos-sdk/types"
 	sdkerrors "github.com/FiboChain/fbc/libs/cosmos-sdk/types/errors"
 	"github.com/FiboChain/fbc/libs/cosmos-sdk/types/innertx"
-	"github.com/FiboChain/fbc/x/common/analyzer"
 )
 
 // StateTransition defines data to transitionDB in evm
@@ -43,7 +46,6 @@ type StateTransition struct {
 type GasInfo struct {
 	GasLimit    uint64
 	GasConsumed uint64
-	GasRefunded uint64
 }
 
 // ExecutionResult represents what's returned from a transition
@@ -107,12 +109,32 @@ func (st *StateTransition) newEVM(
 	return vm.NewEVM(blockCtx, txCtx, csdb, config.EthereumConfig(st.ChainID), vmConfig)
 }
 
+func (st *StateTransition) applyOverrides(ctx sdk.Context, csdb *CommitStateDB) error {
+	overrideBytes := ctx.OverrideBytes()
+	if overrideBytes != nil {
+		var stateOverrides StateOverrides
+		err := json.Unmarshal(overrideBytes, &stateOverrides)
+		if err != nil {
+			return fmt.Errorf("failed to decode stateOverrides")
+		}
+		stateOverrides.Apply(csdb)
+	}
+	return nil
+}
+
 // TransitionDb will transition the state by applying the current transaction and
 // returning the evm execution result.
 // NOTE: State transition checks are run during AnteHandler execution.
 func (st StateTransition) TransitionDb(ctx sdk.Context, config ChainConfig) (exeRes *ExecutionResult, resData *ResultData, err error, innerTxs, erc20Contracts interface{}) {
+	preSSId := st.Csdb.Snapshot()
+	contractCreation := st.Recipient == nil
+
 	defer func() {
 		if e := recover(); e != nil {
+			if !st.Simulate {
+				st.Csdb.RevertToSnapshot(preSSId)
+			}
+
 			// if the msg recovered can be asserted into type 'ErrContractBlockedVerify', it must be captured by the panics of blocked
 			// contract calling
 			switch rType := e.(type) {
@@ -123,8 +145,6 @@ func (st StateTransition) TransitionDb(ctx sdk.Context, config ChainConfig) (exe
 			}
 		}
 	}()
-
-	contractCreation := st.Recipient == nil
 
 	cost, err := core.IntrinsicGas(st.Payload, []ethtypes.AccessTuple{}, contractCreation, config.IsHomestead(), config.IsIstanbul())
 	if err != nil {
@@ -149,12 +169,17 @@ func (st StateTransition) TransitionDb(ctx sdk.Context, config ChainConfig) (exe
 
 	StartTxLog := func(tag string) {
 		if !ctx.IsCheckTx() {
-			analyzer.StartTxLog(tag)
+			trace.StartTxLog(tag)
 		}
 	}
 	StopTxLog := func(tag string) {
 		if !ctx.IsCheckTx() {
-			analyzer.StopTxLog(tag)
+			trace.StopTxLog(tag)
+		}
+	}
+	if ctx.IsCheckTx() {
+		if err = st.applyOverrides(ctx, csdb); err != nil {
+			return
 		}
 	}
 
@@ -168,18 +193,10 @@ func (st StateTransition) TransitionDb(ctx sdk.Context, config ChainConfig) (exe
 		to = EthAddressToString(st.Recipient)
 		recipientStr = to
 	}
-	enableDebug := checkTracesSegment(ctx.BlockHeight(), senderStr, to)
-
-	var tracer vm.Tracer
-	if st.TraceTxLog || enableDebug {
-		tracer = vm.NewStructLogger(evmLogConfig)
-	} else {
-		tracer = NewNoOpTracer()
-	}
-
+	tracer := newTracer(ctx, st.TxHash)
 	vmConfig := vm.Config{
 		ExtraEips:        params.ExtraEIPs,
-		Debug:            st.TraceTxLog || enableDebug,
+		Debug:            st.TraceTxLog,
 		Tracer:           tracer,
 		ContractVerifier: NewContractVerifier(params),
 	}
@@ -192,6 +209,7 @@ func (st StateTransition) TransitionDb(ctx sdk.Context, config ChainConfig) (exe
 		contractAddress common.Address
 		recipientLog    string
 		senderRef       = vm.AccountRef(st.Sender)
+		gasConsumed     uint64
 	)
 
 	// Get nonce of account outside of the EVM
@@ -206,32 +224,63 @@ func (st StateTransition) TransitionDb(ctx sdk.Context, config ChainConfig) (exe
 	switch contractCreation {
 	case true:
 		if !params.EnableCreate {
+			if !st.Simulate {
+				st.Csdb.RevertToSnapshot(preSSId)
+			}
+
 			return exeRes, resData, ErrCreateDisabled, innerTxs, erc20Contracts
 		}
 
 		// check whether the deployer address is in the whitelist if the whitelist is enabled
 		senderAccAddr := st.Sender.Bytes()
 		if params.EnableContractDeploymentWhitelist && !csdb.IsDeployerInWhitelist(senderAccAddr) {
+			if !st.Simulate {
+				st.Csdb.RevertToSnapshot(preSSId)
+			}
+
 			return exeRes, resData, ErrUnauthorizedAccount(senderAccAddr), innerTxs, erc20Contracts
 		}
 
-		StartTxLog(analyzer.EVMCORE)
-		defer StopTxLog(analyzer.EVMCORE)
+		StartTxLog(trace.EVMCORE)
+		defer StopTxLog(trace.EVMCORE)
+		nonce := evm.StateDB.GetNonce(st.Sender)
 		ret, contractAddress, leftOverGas, err = evm.Create(senderRef, st.Payload, gasLimit, st.Amount)
 
 		contractAddressStr := EthAddressToString(&contractAddress)
 		recipientLog = strings.Join([]string{"contract address ", contractAddressStr}, "")
-
-		innertx.UpdateDefaultInnerTx(callTx, contractAddressStr, innertx.CosmosCallType, innertx.EvmCreateName, gasLimit-leftOverGas)
+		gasConsumed = gasLimit - leftOverGas
+		if !csdb.GuFactor.IsNegative() {
+			gasConsumed = csdb.GuFactor.MulInt(sdk.NewIntFromUint64(gasConsumed)).TruncateInt().Uint64()
+		}
+		//if no err, we must be check weather out of gas because, we may increase gasConsumed by 'csdb.GuFactor'.
+		if err == nil {
+			if gasLimit < gasConsumed {
+				err = vm.ErrOutOfGas
+				//if out of gas,then err is ErrOutOfGas, gasConsumed change to gasLimit for can not make line.295 panic that will lead to 'RevertToSnapshot' panic
+				gasConsumed = gasLimit
+			}
+		} else {
+			if gasConsumed > gasLimit {
+				gasConsumed = gasLimit
+				defer func() {
+					panic(types2.ErrorOutOfGas{"EVM execution consumption"})
+				}()
+			}
+		}
+		innertx.UpdateDefaultInnerTx(callTx, contractAddressStr, innertx.CosmosCallType, innertx.EvmCreateName, gasConsumed, nonce)
 	default:
 		if !params.EnableCall {
+			if !st.Simulate {
+				st.Csdb.RevertToSnapshot(preSSId)
+			}
+
 			return exeRes, resData, ErrCallDisabled, innerTxs, erc20Contracts
 		}
 
 		// Increment the nonce for the next transaction	(just for evm state transition)
 		csdb.SetNonce(st.Sender, csdb.GetNonce(st.Sender)+1)
-		StartTxLog(analyzer.EVMCORE)
-		defer StopTxLog(analyzer.EVMCORE)
+		StartTxLog(trace.EVMCORE)
+		defer StopTxLog(trace.EVMCORE)
 		ret, leftOverGas, err = evm.Call(senderRef, *st.Recipient, st.Payload, gasLimit, st.Amount)
 
 		if recipientStr == "" {
@@ -239,11 +288,29 @@ func (st StateTransition) TransitionDb(ctx sdk.Context, config ChainConfig) (exe
 		}
 
 		recipientLog = strings.Join([]string{"recipient address ", recipientStr}, "")
+		gasConsumed = gasLimit - leftOverGas
+		if !csdb.GuFactor.IsNegative() {
+			gasConsumed = csdb.GuFactor.MulInt(sdk.NewIntFromUint64(gasConsumed)).TruncateInt().Uint64()
+		}
+		//if no err, we must be check weather out of gas because, we may increase gasConsumed by 'csdb.GuFactor'.
+		if err == nil {
+			if gasLimit < gasConsumed {
+				err = vm.ErrOutOfGas
+				//if out of gas,then err is ErrOutOfGas, gasConsumed change to gasLimit for can not make line.295 panic that will lead to 'RevertToSnapshot' panic
+				gasConsumed = gasLimit
+			}
+		} else {
+			// For cover err != nil,but gasConsumed which is caculated by gufactor  >  gaslimit,we must be make gasConsumed = gasLimit and panic same as currentGasMeter.ConsumeGas. so we can not use height isolation
+			if gasConsumed > gasLimit {
+				gasConsumed = gasLimit
+				defer func() {
+					panic(types2.ErrorOutOfGas{"EVM execution consumption"})
+				}()
+			}
+		}
 
-		innertx.UpdateDefaultInnerTx(callTx, recipientStr, innertx.CosmosCallType, innertx.EvmCallName, gasLimit-leftOverGas)
+		innertx.UpdateDefaultInnerTx(callTx, recipientStr, innertx.CosmosCallType, innertx.EvmCallName, gasConsumed, 0)
 	}
-
-	gasConsumed := gasLimit - leftOverGas
 
 	innerTxs, erc20Contracts = innertx.ParseInnerTxAndContract(evm, err != nil)
 
@@ -253,16 +320,6 @@ func (st StateTransition) TransitionDb(ctx sdk.Context, config ChainConfig) (exe
 		currentGasMeter.ConsumeGas(gasConsumed, "EVM execution consumption")
 	}()
 
-	defer func() {
-		if !st.Simulate && enableDebug && !st.TraceTx {
-			result := &core.ExecutionResult{
-				UsedGas:    gasConsumed,
-				Err:        err,
-				ReturnData: ret,
-			}
-			saveTraceResult(ctx, tracer, result)
-		}
-	}()
 	// return trace log if tracetxlog no matter err = nil  or not nil
 	defer func() {
 		var traceLogs []byte
@@ -285,6 +342,10 @@ func (st StateTransition) TransitionDb(ctx sdk.Context, config ChainConfig) (exe
 		}
 	}()
 	if err != nil {
+		if !st.Simulate {
+			st.Csdb.RevertToSnapshot(preSSId)
+		}
+
 		// Consume gas before returning
 		return exeRes, resData, newRevertError(ret, err), innerTxs, erc20Contracts
 	}
@@ -301,21 +362,23 @@ func (st StateTransition) TransitionDb(ctx sdk.Context, config ChainConfig) (exe
 	)
 
 	if st.TxHash != nil && !st.Simulate {
-		logs = csdb.GetLogs()
+		logs, err = csdb.GetLogs(*st.TxHash)
+		if err != nil {
+			st.Csdb.RevertToSnapshot(preSSId)
+			return
+		}
 
 		bloomInt = big.NewInt(0).SetBytes(ethtypes.LogsBloom(logs))
 		bloomFilter = ethtypes.BytesToBloom(bloomInt.Bytes())
 	}
 
-	if !st.Simulate || st.TraceTx {
-		// Finalise state if not a simulated transaction or a trace tx
-		// TODO: change to depend on config
-		if err = csdb.Finalise(true); err != nil {
-			return
-		}
-
-		if _, err = csdb.Commit(true); err != nil {
-			return
+	if !st.Simulate {
+		if types.HigherThanMars(ctx.BlockHeight()) {
+			if ctx.IsDeliver() {
+				csdb.IntermediateRoot(true)
+			}
+		} else {
+			csdb.Commit(true)
 		}
 	}
 
@@ -347,7 +410,6 @@ func (st StateTransition) TransitionDb(ctx sdk.Context, config ChainConfig) (exe
 		GasInfo: GasInfo{
 			GasConsumed: gasConsumed,
 			GasLimit:    gasLimit,
-			GasRefunded: leftOverGas,
 		},
 	}
 	return

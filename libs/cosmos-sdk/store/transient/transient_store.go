@@ -1,10 +1,9 @@
 package transient
 
 import (
+	"github.com/FiboChain/fbc/libs/cosmos-sdk/store/types"
 	"github.com/FiboChain/fbc/libs/iavl"
 	dbm "github.com/FiboChain/fbc/libs/tm-db"
-
-	"github.com/FiboChain/fbc/libs/cosmos-sdk/store/types"
 
 	"github.com/FiboChain/fbc/libs/cosmos-sdk/store/dbadapter"
 )
@@ -40,6 +39,10 @@ func (ts *Store) SetPruning(pruning types.PruningOptions) {
 
 // Implements CommitStore
 func (ts *Store) LastCommitID() (id types.CommitID) {
+	return
+}
+
+func (ts *Store) LastCommitVersion() (v int64) {
 	return
 }
 
@@ -80,4 +83,8 @@ func (ts *Store) GetFlatKVReadCount() int {
 
 func (ts *Store) GetFlatKVWriteCount() int {
 	return 0
+}
+
+func (ts *Store) SetUpgradeVersion(int64) {
+
 }

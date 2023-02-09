@@ -6,8 +6,10 @@ import (
 	"bufio"
 	"encoding/json"
 	"fmt"
+	"net"
+	"os"
+	"path/filepath"
 
-	ethcrypto "github.com/ethereum/go-ethereum/crypto"
 	"github.com/FiboChain/fbc/app/crypto/hd"
 	ethermint "github.com/FiboChain/fbc/app/types"
 	"github.com/FiboChain/fbc/libs/cosmos-sdk/client/flags"
@@ -33,11 +35,9 @@ import (
 	"github.com/FiboChain/fbc/x/genutil"
 	"github.com/FiboChain/fbc/x/gov"
 	stakingtypes "github.com/FiboChain/fbc/x/staking/types"
+	ethcrypto "github.com/ethereum/go-ethereum/crypto"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
-	"net"
-	"os"
-	"path/filepath"
 )
 
 var (
@@ -52,6 +52,7 @@ var (
 	flagIPAddrs           = "ip-addrs"
 	flagBaseport          = "base-port"
 	flagLocal             = "local"
+	flagEqualVotingPower  = "equal-voting-power"
 	flagNumRPCs           = "r"
 )
 
@@ -95,10 +96,11 @@ Note, strict routability for addresses is turned off in the config file.`,
 			coinDenom, _ := cmd.Flags().GetString(flagCoinDenom)
 			algo, _ := cmd.Flags().GetString(flagKeyAlgo)
 			isLocal := viper.GetBool(flagLocal)
+			isEqualVotingPower, _ := cmd.Flags().GetBool(flagEqualVotingPower)
 			return InitTestnet(
 				cmd, config, cdc, mbm, genAccIterator, outputDir, chainID, coinDenom, minGasPrices,
 				nodeDirPrefix, nodeDaemonHome, nodeCLIHome, startingIPAddress, ipAddresses, keyringBackend,
-				algo, numValidators, isLocal, numRPCs)
+				algo, numValidators, isLocal, numRPCs, isEqualVotingPower)
 		},
 	}
 
@@ -117,6 +119,7 @@ Note, strict routability for addresses is turned off in the config file.`,
 	cmd.Flags().Int(flagBaseport, 26656, "testnet base port")
 	cmd.Flags().BoolP(flagLocal, "l", false, "run all nodes on local host")
 	cmd.Flags().Int(flagNumRPCs, 0, "Number of RPC nodes to initialize the testnet with")
+	cmd.Flags().BoolP(flagEqualVotingPower, "", false, "Create validators with equal voting power")
 
 	return cmd
 }
@@ -144,10 +147,11 @@ func InitTestnet(
 	numValidators int,
 	isLocal bool,
 	numRPCs int,
+	isEqualVotingPower bool,
 ) error {
 
 	if chainID == "" {
-		chainID = fmt.Sprintf("exchain-%d", tmrand.Int63n(9999999999999)+1)
+		chainID = fmt.Sprintf("fbc-%d", tmrand.Int63n(9999999999999)+1)
 	}
 
 	if !ethermint.IsValidChainID(chainID) {
@@ -281,32 +285,31 @@ func InitTestnet(
 			CodeHash:    ethcrypto.Keccak256(nil),
 		})
 
-		msg := stakingtypes.NewMsgCreateValidator(
-			sdk.ValAddress(addr),
-			valPubKeys[i],
+		//make and save create validator tx
+		sequence := uint64(0)
+		msgCreateVal := stakingtypes.NewMsgCreateValidator(
+			sdk.ValAddress(addr), valPubKeys[i],
 			stakingtypes.NewDescription(nodeDirName, "", "", ""),
 			sdk.NewDecCoinFromDec(common.NativeToken, stakingtypes.DefaultMinSelfDelegation),
 		)
-
-		tx := authtypes.NewStdTx([]sdk.Msg{msg}, authtypes.StdFee{}, []authtypes.StdSignature{}, memo) //nolint:staticcheck // SA1019: authtypes.StdFee is deprecated
-		txBldr := authtypes.NewTxBuilderFromCLI(inBuf).WithChainID(chainID).WithMemo(memo).WithKeybase(kb)
-
-		signedTx, err := txBldr.SignStdTx(nodeDirName, clientkeys.DefaultKeyPass, tx, false)
-		if err != nil {
-			_ = os.RemoveAll(outputDir)
+		if err := makeTxAndWriteFile(msgCreateVal, inBuf, chainID, kb, nodeDirName, sequence, memo, cdc, gentxsDir, outputDir); err != nil {
 			return err
 		}
 
-		txBytes, err := cdc.MarshalJSON(signedTx)
-		if err != nil {
-			_ = os.RemoveAll(outputDir)
-			return err
-		}
+		if !isEqualVotingPower {
+			//make and save deposit tx
+			sequence++
+			msgDeposit := stakingtypes.NewMsgDeposit(addr, sdk.NewDecCoinFromDec(common.NativeToken, sdk.NewDec(10000*int64(i+1))))
+			if err := makeTxAndWriteFile(msgDeposit, inBuf, chainID, kb, nodeDirName, sequence, "", cdc, gentxsDir, outputDir); err != nil {
+				return err
+			}
 
-		// gather gentxs folder
-		if err := writeFile(fmt.Sprintf("%v.json", nodeDirName), gentxsDir, txBytes); err != nil {
-			_ = os.RemoveAll(outputDir)
-			return err
+			//make and save add shares tx
+			sequence++
+			msgAddShares := stakingtypes.NewMsgAddShares(addr, []sdk.ValAddress{sdk.ValAddress(addr)})
+			if err := makeTxAndWriteFile(msgAddShares, inBuf, chainID, kb, nodeDirName, sequence, "", cdc, gentxsDir, outputDir); err != nil {
+				return err
+			}
 		}
 
 		srvconfig.WriteConfigFile(filepath.Join(nodeDir, "config/app.toml"), simappConfig)
@@ -325,6 +328,33 @@ func InitTestnet(
 	}
 
 	cmd.Printf("Successfully initialized %d validator nodes directories, %d rpc nodes directories\n", numValidators, numRPCs)
+	return nil
+}
+
+func makeTxAndWriteFile(msg sdk.Msg, inBuf *bufio.Reader, chainID string, kb keys.Keybase,
+	nodeDirName string, sequence uint64, memo string, cdc *codec.Codec, gentxsDir string,
+	outputDir string) error {
+	tx := authtypes.NewStdTx([]sdk.Msg{msg}, authtypes.StdFee{}, []authtypes.StdSignature{}, memo)
+	txBldr := authtypes.NewTxBuilderFromCLI(inBuf).WithChainID(chainID).WithMemo(memo).WithKeybase(kb).WithSequence(sequence)
+
+	signedTx, err := txBldr.SignStdTx(nodeDirName, clientkeys.DefaultKeyPass, tx, false)
+	if err != nil {
+		_ = os.RemoveAll(outputDir)
+		return err
+	}
+
+	txBytes, err := cdc.MarshalJSON(signedTx)
+	if err != nil {
+		_ = os.RemoveAll(outputDir)
+		return err
+	}
+
+	// gather gentxs folder
+	if err := writeFile(fmt.Sprintf("%v-%d.json", nodeDirName, sequence), gentxsDir, txBytes); err != nil {
+		_ = os.RemoveAll(outputDir)
+		return err
+	}
+
 	return nil
 }
 
@@ -389,7 +419,7 @@ func GenerateSaveCoinKey(keybase keys.Keybase, keyName, keyPass string, overwrit
 	if !overwrite {
 		_, err := keybase.Get(keyName)
 		if err == nil {
-			return []byte{}, "", fmt.Errorf(
+			return sdk.AccAddress([]byte{}), "", fmt.Errorf(
 				"key already exists, overwrite is disabled")
 		}
 	}

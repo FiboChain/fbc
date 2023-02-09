@@ -6,6 +6,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/FiboChain/fbc/libs/cosmos-sdk/store/mpt"
+
 	"github.com/FiboChain/fbc/x/staking"
 
 	"github.com/FiboChain/fbc/libs/cosmos-sdk/codec"
@@ -17,9 +19,9 @@ import (
 	abci "github.com/FiboChain/fbc/libs/tendermint/abci/types"
 	"github.com/FiboChain/fbc/libs/tendermint/crypto/ed25519"
 	"github.com/FiboChain/fbc/libs/tendermint/libs/log"
+	dbm "github.com/FiboChain/fbc/libs/tm-db"
 	"github.com/FiboChain/fbc/x/params"
 	"github.com/stretchr/testify/require"
-	dbm "github.com/FiboChain/fbc/libs/tm-db"
 
 	"github.com/FiboChain/fbc/x/common"
 	"github.com/FiboChain/fbc/x/dex/types"
@@ -52,6 +54,7 @@ func createTestInputWithBalance(t *testing.T, numAddrs, initQuantity int64) test
 	db := dbm.NewMemDB()
 
 	keyAcc := sdk.NewKVStoreKey(auth.StoreKey)
+	keyMpt := sdk.NewKVStoreKey(mpt.StoreKey)
 	keySupply := sdk.NewKVStoreKey(supply.StoreKey)
 	keyParams := sdk.NewKVStoreKey(params.StoreKey)
 	tkeyParams := sdk.NewTransientStoreKey(params.TStoreKey)
@@ -69,6 +72,7 @@ func createTestInputWithBalance(t *testing.T, numAddrs, initQuantity int64) test
 
 	ms := store.NewCommitMultiStore(db)
 	ms.MountStoreWithDB(keyAcc, sdk.StoreTypeIAVL, db)
+	ms.MountStoreWithDB(keyMpt, sdk.StoreTypeMPT, db)
 	ms.MountStoreWithDB(keySupply, sdk.StoreTypeIAVL, db)
 	ms.MountStoreWithDB(keyParams, sdk.StoreTypeIAVL, db)
 	ms.MountStoreWithDB(tkeyParams, sdk.StoreTypeTransient, db)
@@ -92,7 +96,7 @@ func createTestInputWithBalance(t *testing.T, numAddrs, initQuantity int64) test
 	blacklistedAddrs[feeCollectorAcc.String()] = true
 
 	paramsKeeper := params.NewKeeper(cdc, keyParams, tkeyParams)
-	accountKeeper := auth.NewAccountKeeper(cdc, keyAcc,
+	accountKeeper := auth.NewAccountKeeper(cdc, keyAcc, keyMpt,
 		paramsKeeper.Subspace(auth.DefaultParamspace), auth.ProtoBaseAccount)
 	bankKeeper := bank.NewBaseKeeper(accountKeeper, paramsKeeper.Subspace(bank.DefaultParamspace),
 		blacklistedAddrs)
@@ -102,7 +106,7 @@ func createTestInputWithBalance(t *testing.T, numAddrs, initQuantity int64) test
 		types.ModuleName:      nil,
 		gov.ModuleName:        nil,
 	}
-	supplyKeeper := supply.NewKeeper(cdc, keySupply, accountKeeper, bankKeeper, maccPerms)
+	supplyKeeper := supply.NewKeeper(cdc, keySupply, accountKeeper, bank.NewBankKeeperAdapter(bankKeeper), maccPerms)
 	supplyKeeper.SetSupply(ctx, supply.NewSupply(sdk.Coins{}))
 
 	// set module accounts

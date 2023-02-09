@@ -6,30 +6,40 @@ import (
 	"os"
 	"runtime/pprof"
 
-	"github.com/FiboChain/fbc/libs/system"
-	"github.com/FiboChain/fbc/libs/tendermint/libs/log"
+	app2 "github.com/FiboChain/fbc/libs/cosmos-sdk/server/types"
 
+	"github.com/FiboChain/fbc/libs/cosmos-sdk/server/grpc"
+	"github.com/FiboChain/fbc/libs/tendermint/consensus"
+
+	"github.com/FiboChain/fbc/libs/cosmos-sdk/store/mpt"
+	"github.com/FiboChain/fbc/libs/tendermint/rpc/client"
+
+	"github.com/gogo/protobuf/jsonpb"
 	"github.com/FiboChain/fbc/libs/cosmos-sdk/baseapp"
 	"github.com/FiboChain/fbc/libs/cosmos-sdk/client/context"
 	"github.com/FiboChain/fbc/libs/cosmos-sdk/client/lcd"
 	"github.com/FiboChain/fbc/libs/cosmos-sdk/codec"
 	"github.com/FiboChain/fbc/libs/cosmos-sdk/store/iavl"
 	"github.com/FiboChain/fbc/libs/cosmos-sdk/x/auth/types"
-	tmiavl "github.com/FiboChain/fbc/libs/iavl"
-	abci "github.com/FiboChain/fbc/libs/tendermint/abci/types"
-	tcmd "github.com/FiboChain/fbc/libs/tendermint/cmd/tendermint/commands"
+	"github.com/FiboChain/fbc/libs/system"
 	"github.com/FiboChain/fbc/libs/tendermint/libs/cli"
-	tmos "github.com/FiboChain/fbc/libs/tendermint/libs/os"
+	"github.com/FiboChain/fbc/libs/tendermint/libs/log"
 	"github.com/FiboChain/fbc/libs/tendermint/mempool"
 	"github.com/FiboChain/fbc/libs/tendermint/node"
 	"github.com/FiboChain/fbc/libs/tendermint/p2p"
-	pvm "github.com/FiboChain/fbc/libs/tendermint/privval"
 	"github.com/FiboChain/fbc/libs/tendermint/proxy"
 	"github.com/FiboChain/fbc/libs/tendermint/rpc/client/local"
 	"github.com/FiboChain/fbc/libs/tendermint/state"
-	tmtypes "github.com/FiboChain/fbc/libs/tendermint/types"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
+
+	tmiavl "github.com/FiboChain/fbc/libs/iavl"
+	abci "github.com/FiboChain/fbc/libs/tendermint/abci/types"
+	bcv0 "github.com/FiboChain/fbc/libs/tendermint/blockchain/v0"
+	tcmd "github.com/FiboChain/fbc/libs/tendermint/cmd/tendermint/commands"
+	tmos "github.com/FiboChain/fbc/libs/tendermint/libs/os"
+	pvm "github.com/FiboChain/fbc/libs/tendermint/privval"
+	tmtypes "github.com/FiboChain/fbc/libs/tendermint/types"
 )
 
 // Tendermint full-node start flags
@@ -57,17 +67,27 @@ const (
 	FlagPruningMaxWsNum = "pruning-max-worldstate-num"
 	FlagExportKeystore  = "export-keystore"
 	FlagLogServerUrl    = "log-server"
+
+	FlagActiveViewChange = "active-view-change"
+	FlagCommitGapHeight  = "commit-gap-height"
+
+	FlagBlockPartSizeBytes = "block-part-size"
+
+	FlagFastSyncGap = "fastsync-gap"
+
+	FlagEventBlockTime = "event-block-time"
 )
 
 // StartCmd runs the service passed in, either stand-alone or in-process with
 // Tendermint.
 func StartCmd(ctx *Context,
-	cdc *codec.Codec,
+	cdc *codec.CodecProxy,
+	registry jsonpb.AnyResolver,
 	appCreator AppCreator,
 	appStop AppStop,
 	registerRoutesFn func(restServer *lcd.RestServer),
 	registerAppFlagFn func(cmd *cobra.Command),
-	appPreRun func(ctx *Context) error,
+	appPreRun func(ctx *Context, cmd *cobra.Command) error,
 	subFunc func(logger log.Logger) log.Subscriber,
 ) *cobra.Command {
 	cmd := &cobra.Command{
@@ -97,11 +117,9 @@ which accepts a path for the resulting pprof file.
 `,
 		PreRunE: func(cmd *cobra.Command, args []string) error {
 			// app pre run
-			if err := appPreRun(ctx); err != nil {
+			if err := appPreRun(ctx, cmd); err != nil {
 				return err
 			}
-			// set external package flags
-			SetExternalPackageValue(cmd)
 			return nil
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -112,14 +130,13 @@ which accepts a path for the resulting pprof file.
 			log.SetSubscriber(sub)
 
 			setPID(ctx)
-			_, err := startInProcess(ctx, cdc, appCreator, appStop, registerRoutesFn)
+			_, err := startInProcess(ctx, cdc, registry, appCreator, appStop, registerRoutesFn)
 			if err != nil {
 				tmos.Exit(err.Error())
 			}
 			return nil
 		},
 	}
-
 	RegisterServerFlags(cmd)
 	registerAppFlagFn(cmd)
 	// add support for all Tendermint-specific command line options
@@ -128,7 +145,7 @@ which accepts a path for the resulting pprof file.
 	return cmd
 }
 
-func startInProcess(ctx *Context, cdc *codec.Codec, appCreator AppCreator, appStop AppStop,
+func startInProcess(ctx *Context, cdc *codec.CodecProxy, registry jsonpb.AnyResolver, appCreator AppCreator, appStop AppStop,
 	registerRoutesFn func(restServer *lcd.RestServer)) (*node.Node, error) {
 
 	cfg := ctx.Config
@@ -174,6 +191,12 @@ func startInProcess(ctx *Context, cdc *codec.Codec, appCreator AppCreator, appSt
 		Value: tmNode.ConsensusState().GetState().ChainID,
 	})
 
+	if clientSetter, ok := app.(interface {
+		SetTmClient(client client.Client)
+	}); ok {
+		clientSetter.SetTmClient(local.New(tmNode))
+	}
+
 	ctx.Logger.Info("startInProcess",
 		"ConsensusStateChainID", tmNode.ConsensusState().GetState().ChainID,
 		"GenesisDocChainID", tmNode.GenesisDoc().ChainID,
@@ -216,13 +239,17 @@ func startInProcess(ctx *Context, cdc *codec.Codec, appCreator AppCreator, appSt
 	})
 
 	if registerRoutesFn != nil {
-		go lcd.StartRestServer(cdc, registerRoutesFn, tmNode, viper.GetString(FlagListenAddr))
+		go lcd.StartRestServer(cdc, registry, registerRoutesFn, tmNode, viper.GetString(FlagListenAddr))
+	}
+
+	if cfg.GRPC.Enable {
+		go grpc.StartGRPCServer(cdc, registry, app.(app2.ApplicationAdapter), cfg.GRPC, tmNode)
 	}
 
 	baseapp.SetGlobalMempool(tmNode.Mempool(), cfg.Mempool.SortTxByGp, cfg.Mempool.EnablePendingPool)
 
 	if cfg.Mempool.EnablePendingPool {
-		cliCtx := context.NewCLIContext().WithCodec(cdc)
+		cliCtx := context.NewCLIContext().WithProxy(cdc)
 		cliCtx.Client = local.New(tmNode)
 		cliCtx.TrustNode = true
 		accRetriever := types.NewAccountRetriever(cliCtx)
@@ -237,6 +264,62 @@ func startInProcess(ctx *Context, cdc *codec.Codec, appCreator AppCreator, appSt
 	select {}
 }
 
+func StartRestWithNode(ctx *Context, cdc *codec.CodecProxy, blockStoreDir string,
+	registry jsonpb.AnyResolver, appCreator AppCreator,
+	registerRoutesFn func(restServer *lcd.RestServer)) (*node.Node, error) {
+
+	cfg := ctx.Config
+	home := cfg.RootDir
+	////startInProcess hooker
+	//callHooker(FlagHookstartInProcess, ctx)
+
+	traceWriterFile := viper.GetString(flagTraceStore)
+	db, err := openDB(home)
+	if err != nil {
+		return nil, err
+	}
+
+	traceWriter, err := openTraceWriter(traceWriterFile)
+	if err != nil {
+		return nil, err
+	}
+
+	app := appCreator(ctx.Logger, db, traceWriter)
+
+	nodeKey, err := p2p.LoadOrGenNodeKey(cfg.NodeKeyFile())
+	if err != nil {
+		return nil, err
+	}
+
+	// create & start tendermint node
+	tmNode, err := node.NewLRPNode(
+		cfg,
+		pvm.LoadFilePVEmptyState(cfg.PrivValidatorKeyFile(), cfg.PrivValidatorStateFile()),
+		nodeKey,
+		proxy.NewLocalClientCreator(app),
+		node.DefaultGenesisDocProviderFunc(cfg),
+		node.DefaultDBProvider,
+		blockStoreDir,
+		ctx.Logger.With("module", "node"),
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	app.SetOption(abci.RequestSetOption{
+		Key:   "CheckChainID",
+		Value: tmNode.ConsensusState().GetState().ChainID,
+	})
+
+	if registerRoutesFn != nil {
+		go lcd.StartRestServer(cdc, registry, registerRoutesFn, tmNode, viper.GetString(FlagListenAddr))
+	}
+
+	// run forever (the node will not be returned)
+	//select {}
+	return tmNode, nil
+}
+
 // Use SetExternalPackageValue to set external package config value.
 func SetExternalPackageValue(cmd *cobra.Command) {
 	iavl.IavlCacheSize = viper.GetInt(iavl.FlagIavlCacheSize)
@@ -247,6 +330,9 @@ func SetExternalPackageValue(cmd *cobra.Command) {
 	tmiavl.HeightOrphansCacheSize = viper.GetInt(tmiavl.FlagIavlHeightOrphansCacheSize)
 	tmiavl.MaxCommittedHeightNum = viper.GetInt(tmiavl.FlagIavlMaxCommittedHeightNum)
 	tmiavl.EnableAsyncCommit = viper.GetBool(tmiavl.FlagIavlEnableAsyncCommit)
+	if viper.GetBool(tmiavl.FlagIavlDiscardFastStorage) {
+		tmiavl.SetEnableFastStorage(false)
+	}
 	system.EnableGid = viper.GetBool(system.FlagEnableGid)
 
 	state.ApplyBlockPprofTime = viper.GetInt(state.FlagApplyBlockPprofTime)
@@ -259,4 +345,15 @@ func SetExternalPackageValue(cmd *cobra.Command) {
 	tmtypes.UploadDelta = viper.GetBool(tmtypes.FlagUploadDDS)
 	tmtypes.FastQuery = viper.GetBool(tmtypes.FlagFastQuery)
 	tmtypes.DeltaVersion = viper.GetInt(tmtypes.FlagDeltaVersion)
+	tmtypes.BlockCompressType = viper.GetInt(tmtypes.FlagBlockCompressType)
+	tmtypes.BlockCompressFlag = viper.GetInt(tmtypes.FlagBlockCompressFlag)
+	tmtypes.BlockCompressThreshold = viper.GetInt(tmtypes.FlagBlockCompressThreshold)
+
+	mpt.TrieCommitGap = viper.GetInt64(FlagCommitGapHeight)
+
+	bcv0.MaxIntervalForFastSync = viper.GetInt64(FlagFastSyncGap)
+
+	consensus.SetActiveVC(viper.GetBool(FlagActiveViewChange))
+
+	tmtypes.EnableEventBlockTime = viper.GetBool(FlagEventBlockTime)
 }

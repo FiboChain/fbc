@@ -21,8 +21,8 @@ import (
 	"github.com/FiboChain/fbc/x/genutil"
 
 	"github.com/FiboChain/fbc/app/crypto/hd"
-	fbchain "github.com/FiboChain/fbc/app/types"
 
+	fbchain "github.com/FiboChain/fbc/app/types"
 	ethcrypto "github.com/ethereum/go-ethereum/crypto"
 )
 

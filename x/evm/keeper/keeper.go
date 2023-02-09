@@ -2,20 +2,32 @@ package keeper
 
 import (
 	"encoding/binary"
-	"fmt"
 	"math/big"
+	"sync"
 
-	"github.com/ethereum/go-ethereum/common"
+	"github.com/VictoriaMetrics/fastcache"
 	ethcmn "github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/common/prque"
+	ethstate "github.com/ethereum/go-ethereum/core/state"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
+	lru "github.com/hashicorp/golang-lru"
+
+	app "github.com/FiboChain/fbc/app/types"
 	"github.com/FiboChain/fbc/libs/cosmos-sdk/codec"
 	"github.com/FiboChain/fbc/libs/cosmos-sdk/store"
+	"github.com/FiboChain/fbc/libs/cosmos-sdk/store/mpt"
 	sdk "github.com/FiboChain/fbc/libs/cosmos-sdk/types"
 	"github.com/FiboChain/fbc/libs/cosmos-sdk/x/auth"
 	"github.com/FiboChain/fbc/libs/tendermint/libs/log"
+	tmtypes "github.com/FiboChain/fbc/libs/tendermint/types"
 	"github.com/FiboChain/fbc/x/evm/types"
 	"github.com/FiboChain/fbc/x/evm/watcher"
 	"github.com/FiboChain/fbc/x/params"
+)
+
+const (
+	heightCacheLimit = 1024
+	hashCacheLimit   = 1024
 )
 
 // Keeper wraps the CommitStateDB, allowing us to pass in SDK context while adhering
@@ -30,12 +42,14 @@ type Keeper struct {
 	// - storing block height -> bloom filter map. Needed for the Web3 API.
 	// - storing block hash -> block height map. Needed for the Web3 API.
 	storeKey sdk.StoreKey
+
 	// Account Keeper for fetching accounts
 	accountKeeper types.AccountKeeper
 	paramSpace    types.Subspace
 	supplyKeeper  types.SupplyKeeper
 	bankKeeper    types.BankKeeper
 	govKeeper     GovKeeper
+	stakingKeeper types.StakingKeeper
 
 	// Transaction counter in a block. Used on StateSB's Prepare function.
 	// It is reset to 0 every block on BeginBlock so there's no point in storing the counter
@@ -44,7 +58,6 @@ type Keeper struct {
 	Bloom   *big.Int
 	Bhash   ethcmn.Hash
 	LogSize uint
-	Watcher *watcher.Watcher
 	Ada     types.DbAdapter
 
 	LogsManages *LogsManager
@@ -52,8 +65,26 @@ type Keeper struct {
 	// add inner block data
 	innerBlockData BlockInnerData
 
+	db          ethstate.Database
+	rootTrie    ethstate.Trie
+	rootHash    ethcmn.Hash
+	startHeight uint64
+	triegc      *prque.Prque
+	stateCache  *fastcache.Cache
+	cmLock      sync.Mutex
+
+	EvmStateDb     *types.CommitStateDB
+	UpdatedAccount []ethcmn.Address
+
 	// cache chain config
-	cci chainConfigInfo
+	cci *chainConfigInfo
+
+	hooks   types.EvmHooks
+	logger  log.Logger
+	Watcher *watcher.Watcher
+
+	heightCache *lru.Cache // Cache for the most recent block heights
+	hashCache   *lru.Cache // Cache for the most recent block hash
 }
 
 type chainConfigInfo struct {
@@ -68,14 +99,13 @@ type chainConfigInfo struct {
 
 // NewKeeper generates new evm module keeper
 func NewKeeper(
-	cdc *codec.Codec, storeKey sdk.StoreKey, paramSpace params.Subspace, ak types.AccountKeeper, sk types.SupplyKeeper, bk types.BankKeeper,
+	cdc *codec.Codec, storeKey sdk.StoreKey, paramSpace params.Subspace, ak types.AccountKeeper, sk types.SupplyKeeper, bk types.BankKeeper, stk types.StakingKeeper,
 	logger log.Logger) *Keeper {
 	// set KeyTable if it has not already been set
 	if !paramSpace.HasKeyTable() {
 		paramSpace = paramSpace.WithKeyTable(types.ParamKeyTable())
 	}
 
-	types.InitTxTraces()
 	err := initInnerDB()
 	if err != nil {
 		panic(err)
@@ -85,6 +115,9 @@ func NewKeeper(
 		db := types.BloomDb()
 		types.InitIndexer(db)
 	}
+	logger = logger.With("module", types.ModuleName)
+	heightCache, _ := lru.New(heightCacheLimit)
+	hashCache, _ := lru.New(hashCacheLimit)
 	// NOTE: we pass in the parameter space to the CommitStateDB in order to use custom denominations for the EVM operations
 	k := &Keeper{
 		cdc:           cdc,
@@ -93,45 +126,75 @@ func NewKeeper(
 		paramSpace:    paramSpace,
 		supplyKeeper:  sk,
 		bankKeeper:    bk,
+		stakingKeeper: stk,
 		TxCount:       0,
 		Bloom:         big.NewInt(0),
 		LogSize:       0,
-		Watcher:       watcher.NewWatcher(logger),
 		Ada:           types.DefaultPrefixDb{},
 
 		innerBlockData: defaultBlockInnerData(),
-	}
-	k.Watcher.SetWatchDataFunc()
-	if k.Watcher.Enabled() {
-		ak.SetObserverKeeper(k)
-	}
 
+		db:             mpt.InstanceOfMptStore(),
+		triegc:         prque.New(nil),
+		UpdatedAccount: make([]ethcmn.Address, 0),
+		cci:            &chainConfigInfo{},
+		LogsManages:    NewLogManager(),
+		logger:         logger,
+		Watcher:        watcher.NewWatcher(logger),
+		heightCache:    heightCache,
+		hashCache:      hashCache,
+	}
+	k.Watcher.SetWatchDataManager()
+	ak.SetObserverKeeper(k)
+
+	k.OpenTrie()
+	k.EvmStateDb = types.NewCommitStateDB(k.GenerateCSDBParams())
 	return k
 }
 
 // NewKeeper generates new evm module keeper
 func NewSimulateKeeper(
-	cdc *codec.Codec, storeKey sdk.StoreKey, paramSpace types.Subspace, ak types.AccountKeeper, sk types.SupplyKeeper, bk types.BankKeeper, ada types.DbAdapter,
+	cdc *codec.Codec, storeKey sdk.StoreKey, paramSpace types.Subspace, ak types.AccountKeeper, sk types.SupplyKeeper, bk types.BankKeeper, stk types.StakingKeeper, ada types.DbAdapter,
 	logger log.Logger) *Keeper {
+	heightCache, _ := lru.New(heightCacheLimit)
+	hashCache, _ := lru.New(hashCacheLimit)
 	// NOTE: we pass in the parameter space to the CommitStateDB in order to use custom denominations for the EVM operations
-	return &Keeper{
+	k := &Keeper{
 		cdc:           cdc,
 		storeKey:      storeKey,
 		accountKeeper: ak,
 		paramSpace:    paramSpace,
 		supplyKeeper:  sk,
 		bankKeeper:    bk,
+		stakingKeeper: stk,
 		TxCount:       0,
 		Bloom:         big.NewInt(0),
 		LogSize:       0,
 		Watcher:       watcher.NewWatcher(nil),
 		Ada:           ada,
+
+		db: mpt.InstanceOfMptStore(),
+		// Optimize memory usage. No need to initialize this variable when simulate tx.
+		// triegc:         prque.New(nil),
+		UpdatedAccount: make([]ethcmn.Address, 0),
+		cci:            &chainConfigInfo{},
+		heightCache:    heightCache,
+		hashCache:      hashCache,
 	}
+
+	k.OpenTrie()
+	k.EvmStateDb = types.NewCommitStateDB(k.GenerateCSDBParams())
+
+	return k
 }
 
-func (k Keeper) OnAccountUpdated(acc auth.Account) {
-	account := acc.GetAddress()
-	k.Watcher.DeleteAccount(account)
+// Warning, you need to use pointer object here, for you need to update UpdatedAccount var
+func (k *Keeper) OnAccountUpdated(acc auth.Account) {
+	if _, ok := acc.(*app.EthAccount); ok {
+		k.Watcher.DeleteAccount(acc.GetAddress())
+	}
+
+	k.UpdatedAccount = append(k.UpdatedAccount, ethcmn.BytesToAddress(acc.GetAddress().Bytes()))
 }
 
 // Logger returns a module-specific logger.
@@ -142,25 +205,35 @@ func (k *Keeper) GenerateCSDBParams() types.CommitStateDBParams {
 		AccountKeeper: k.accountKeeper,
 		SupplyKeeper:  k.supplyKeeper,
 		BankKeeper:    k.bankKeeper,
-		Watcher:       k.Watcher,
 		Ada:           k.Ada,
 		Cdc:           k.cdc,
+		DB:            k.db,
+		Trie:          k.rootTrie,
+		RootHash:      k.rootHash,
 	}
 }
 
 // GeneratePureCSDBParams generates an instance of csdb params ONLY for store setter and getter
 func (k Keeper) GeneratePureCSDBParams() types.CommitStateDBParams {
 	return types.CommitStateDBParams{
-		StoreKey: k.storeKey,
-		Watcher:  k.Watcher,
-		Ada:      k.Ada,
-		Cdc:      k.cdc,
+		StoreKey:   k.storeKey,
+		ParamSpace: k.paramSpace,
+		Ada:        k.Ada,
+		Cdc:        k.cdc,
+
+		DB:       k.db,
+		Trie:     k.rootTrie,
+		RootHash: k.rootHash,
 	}
 }
 
 // Logger returns a module-specific logger.
-func (k Keeper) Logger(ctx sdk.Context) log.Logger {
-	return ctx.Logger().With("module", fmt.Sprintf("x/%s", types.ModuleName))
+func (k Keeper) Logger() log.Logger {
+	return k.logger
+}
+
+func (k Keeper) GetStoreKey() store.StoreKey {
+	return k.storeKey
 }
 
 // ----------------------------------------------------------------------------
@@ -169,10 +242,18 @@ func (k Keeper) Logger(ctx sdk.Context) log.Logger {
 //  TODO: remove once tendermint support block queries by hash.
 // ----------------------------------------------------------------------------
 
-// GetBlockHash gets block height from block consensus hash
-func (k Keeper) GetBlockHash(ctx sdk.Context, hash []byte) (int64, bool) {
+// GetBlockHeight gets block height from block consensus hash
+func (k Keeper) GetBlockHeight(ctx sdk.Context, hash ethcmn.Hash) (int64, bool) {
+	if cached, ok := k.heightCache.Get(hash.Hex()); ok {
+		height := cached.(int64)
+		return height, true
+	}
+	if tmtypes.HigherThanMars(ctx.BlockHeight()) {
+		return k.getBlockHashInDiskDB(hash.Bytes())
+	}
+
 	store := k.Ada.NewStore(ctx.KVStore(k.storeKey), types.KeyPrefixBlockHash)
-	bz := store.Get(hash)
+	bz := store.Get(hash.Bytes())
 	if len(bz) == 0 {
 		return 0, false
 	}
@@ -181,11 +262,35 @@ func (k Keeper) GetBlockHash(ctx sdk.Context, hash []byte) (int64, bool) {
 	return int64(height), true
 }
 
-// SetBlockHash sets the mapping from block consensus hash to block height
-func (k Keeper) SetBlockHash(ctx sdk.Context, hash []byte, height int64) {
+// SetBlockHeight sets the mapping from block consensus hash to block height
+func (k Keeper) SetBlockHeight(ctx sdk.Context, hash []byte, height int64) {
+	if tmtypes.HigherThanMars(ctx.BlockHeight()) {
+		k.setBlockHashInDiskDB(hash, height)
+		return
+	}
+
 	store := k.Ada.NewStore(ctx.KVStore(k.storeKey), types.KeyPrefixBlockHash)
 	bz := sdk.Uint64ToBigEndian(uint64(height))
 	store.Set(hash, bz)
+	if mpt.TrieWriteAhead {
+		k.setBlockHashInDiskDB(hash, height)
+	}
+}
+
+// IterateBlockHash iterates all over the block hash in every height
+func (k Keeper) IterateBlockHash(ctx sdk.Context, fn func(key []byte, value []byte) (stop bool)) {
+	if tmtypes.HigherThanMars(ctx.BlockHeight()) {
+		k.iterateBlockHashInDiskDB(fn)
+		return
+	}
+
+	iterator := sdk.KVStorePrefixIterator(ctx.KVStore(k.storeKey), types.KeyPrefixBlockHash)
+	defer iterator.Close()
+	for ; iterator.Valid(); iterator.Next() {
+		if stop := fn(iterator.Key(), iterator.Value()); stop {
+			break
+		}
+	}
 }
 
 // ----------------------------------------------------------------------------
@@ -194,12 +299,16 @@ func (k Keeper) SetBlockHash(ctx sdk.Context, hash []byte, height int64) {
 // ----------------------------------------------------------------------------
 
 // GetHeightHash returns the block header hash associated with a given block height and chain epoch number.
-func (k Keeper) GetHeightHash(ctx sdk.Context, height uint64) common.Hash {
+func (k Keeper) GetHeightHash(ctx sdk.Context, height uint64) ethcmn.Hash {
+	if cached, ok := k.hashCache.Get(int64(height)); ok {
+		hash := cached.(string)
+		return ethcmn.HexToHash(hash)
+	}
 	return types.CreateEmptyCommitStateDB(k.GenerateCSDBParams(), ctx).GetHeightHash(height)
 }
 
 // SetHeightHash sets the block header hash associated with a given height.
-func (k Keeper) SetHeightHash(ctx sdk.Context, height uint64, hash common.Hash) {
+func (k Keeper) SetHeightHash(ctx sdk.Context, height uint64, hash ethcmn.Hash) {
 	types.CreateEmptyCommitStateDB(k.GenerateCSDBParams(), ctx).SetHeightHash(height, hash)
 }
 
@@ -210,31 +319,54 @@ func (k Keeper) SetHeightHash(ctx sdk.Context, height uint64, hash common.Hash) 
 
 // GetBlockBloom gets bloombits from block height
 func (k Keeper) GetBlockBloom(ctx sdk.Context, height int64) ethtypes.Bloom {
+	if tmtypes.HigherThanMars(ctx.BlockHeight()) {
+		return k.getBlockBloomInDiskDB(height)
+	}
+
 	store := k.Ada.NewStore(ctx.KVStore(k.storeKey), types.KeyPrefixBloom)
 	has := store.Has(types.BloomKey(height))
 	if !has {
 		return ethtypes.Bloom{}
 	}
-
 	bz := store.Get(types.BloomKey(height))
 	return ethtypes.BytesToBloom(bz)
 }
 
-func (k Keeper) GetStoreKey() store.StoreKey {
-	return k.storeKey
-}
-
 // SetBlockBloom sets the mapping from block height to bloom bits
 func (k Keeper) SetBlockBloom(ctx sdk.Context, height int64, bloom ethtypes.Bloom) {
+	if tmtypes.HigherThanMars(ctx.BlockHeight()) {
+		k.setBlockBloomInDiskDB(height, bloom)
+		return
+	}
+
 	store := k.Ada.NewStore(ctx.KVStore(k.storeKey), types.KeyPrefixBloom)
 	store.Set(types.BloomKey(height), bloom.Bytes())
+	if mpt.TrieWriteAhead {
+		k.setBlockBloomInDiskDB(height, bloom)
+	}
+}
+
+// IterateBlockBloom iterates all over the bloom value in every height
+func (k Keeper) IterateBlockBloom(ctx sdk.Context, fn func(key []byte, value []byte) (stop bool)) {
+	if tmtypes.HigherThanMars(ctx.BlockHeight()) {
+		k.iterateBlockBloomInDiskDB(fn)
+		return
+	}
+
+	iterator := sdk.KVStorePrefixIterator(ctx.KVStore(k.storeKey), types.KeyPrefixBloom)
+	defer iterator.Close()
+	for ; iterator.Valid(); iterator.Next() {
+		if stop := fn(iterator.Key(), iterator.Value()); stop {
+			break
+		}
+	}
 }
 
 // GetAccountStorage return state storage associated with an account
-func (k Keeper) GetAccountStorage(ctx sdk.Context, address common.Address) (types.Storage, error) {
+func (k Keeper) GetAccountStorage(ctx sdk.Context, address ethcmn.Address) (types.Storage, error) {
 	storage := types.Storage{}
 	csdb := types.CreateEmptyCommitStateDB(k.GenerateCSDBParams(), ctx)
-	err := csdb.ForEachStorage(address, func(key, value common.Hash) bool {
+	err := csdb.ForEachStorage(address, func(key, value ethcmn.Hash) bool {
 		storage = append(storage, types.NewState(key, value))
 		return false
 	})
@@ -248,7 +380,14 @@ func (k Keeper) GetAccountStorage(ctx sdk.Context, address common.Address) (type
 // getChainConfig get raw chain config and unmarshal it
 func (k *Keeper) getChainConfig(ctx sdk.Context) (types.ChainConfig, bool) {
 	// if keeper has cached the chain config, return immediately
-	store := k.Ada.NewStore(ctx.KVStore(k.storeKey), types.KeyPrefixChainConfig)
+
+	var store types.StoreProxy
+	if tmtypes.HigherThanMars(ctx.BlockHeight()) {
+		store = k.Ada.NewStore(k.paramSpace.CustomKVStore(ctx), types.KeyPrefixChainConfig)
+	} else {
+		store = k.Ada.NewStore(ctx.KVStore(k.storeKey), types.KeyPrefixChainConfig)
+	}
+
 	// get from an empty key that's already prefixed by KeyPrefixChainConfig
 	bz := store.Get([]byte{})
 	if len(bz) == 0 {
@@ -268,7 +407,7 @@ func (k *Keeper) getChainConfig(ctx sdk.Context) (types.ChainConfig, bool) {
 // GetChainConfig gets chain config, the result if from cached result, or
 // it gains chain config and gas costs from getChainConfig, then
 // cache the chain config and gas costs.
-func (k *Keeper) GetChainConfig(ctx sdk.Context) (types.ChainConfig, bool) {
+func (k Keeper) GetChainConfig(ctx sdk.Context) (types.ChainConfig, bool) {
 	// if keeper has cached the chain config, return immediately, and increase gas costs.
 	if k.cci.cc != nil {
 		ctx.GasMeter().ConsumeGas(k.cci.gasReduced, "cached chain config recover")
@@ -290,7 +429,13 @@ func (k *Keeper) GetChainConfig(ctx sdk.Context) (types.ChainConfig, bool) {
 
 // SetChainConfig sets the mapping from block consensus hash to block height
 func (k *Keeper) SetChainConfig(ctx sdk.Context, config types.ChainConfig) {
-	store := k.Ada.NewStore(ctx.KVStore(k.storeKey), types.KeyPrefixChainConfig)
+	var store types.StoreProxy
+	if tmtypes.HigherThanMars(ctx.BlockHeight()) {
+		store = k.Ada.NewStore(k.paramSpace.CustomKVStore(ctx), types.KeyPrefixChainConfig)
+	} else {
+		store = k.Ada.NewStore(ctx.KVStore(k.storeKey), types.KeyPrefixChainConfig)
+	}
+
 	bz := k.cdc.MustMarshalBinaryBare(config)
 	// get to an empty key that's already prefixed by KeyPrefixChainConfig
 	store.Set([]byte{}, bz)
@@ -304,13 +449,64 @@ func (k *Keeper) SetGovKeeper(gk GovKeeper) {
 	k.govKeeper = gk
 }
 
+var commitStateDBPool = &sync.Pool{
+	New: func() interface{} {
+		return &types.CommitStateDB{GuFactor: types.DefaultGuFactor}
+	},
+}
+
 // checks whether the address is blocked
 func (k *Keeper) IsAddressBlocked(ctx sdk.Context, addr sdk.AccAddress) bool {
-	csdb := types.CreateEmptyCommitStateDB(k.GenerateCSDBParams(), ctx)
-	return csdb.GetParams().EnableContractBlockedList && csdb.IsContractInBlockedList(addr.Bytes())
+	csdb := commitStateDBPool.Get().(*types.CommitStateDB)
+	defer commitStateDBPool.Put(csdb)
+	types.ResetCommitStateDB(csdb, k.GenerateCSDBParams(), &ctx)
+
+	// csdb := types.CreateEmptyCommitStateDB(k.GenerateCSDBParams(), ctx)
+	return k.GetParams(ctx).EnableContractBlockedList && csdb.IsContractInBlockedList(addr.Bytes())
 }
 
 func (k *Keeper) IsContractInBlockedList(ctx sdk.Context, addr sdk.AccAddress) bool {
 	csdb := types.CreateEmptyCommitStateDB(k.GenerateCSDBParams(), ctx)
 	return csdb.IsContractInBlockedList(addr.Bytes())
+}
+
+func (k *Keeper) SetObserverKeeper(infuraKeeper watcher.InfuraKeeper) {
+	k.Watcher.InfuraKeeper = infuraKeeper
+}
+
+// SetHooks sets the hooks for the EVM module
+// It should be called only once during initialization, it panics if called more than once.
+func (k *Keeper) SetHooks(hooks types.EvmHooks) *Keeper {
+	if k.hooks != nil {
+		panic("cannot set evm hooks twice")
+	}
+	k.hooks = hooks
+
+	return k
+}
+
+// ResetHooks resets the hooks for the EVM module
+func (k *Keeper) ResetHooks() *Keeper {
+	k.hooks = nil
+
+	return k
+}
+
+// GetHooks gets the hooks for the EVM module
+func (k *Keeper) GetHooks() types.EvmHooks {
+	return k.hooks
+}
+
+// CallEvmHooks delegate the call to the hooks. If no hook has been registered, this function returns with a `nil` error
+func (k *Keeper) CallEvmHooks(ctx sdk.Context, st *types.StateTransition, receipt *ethtypes.Receipt) error {
+	if k.hooks == nil {
+		return nil
+	}
+	return k.hooks.PostTxProcessing(ctx, st, receipt)
+}
+
+// Add latest block height and hash to lru cache
+func (k *Keeper) AddHeightHashToCache(height int64, hash string) {
+	k.heightCache.Add(hash, height)
+	k.hashCache.Add(height, hash)
 }

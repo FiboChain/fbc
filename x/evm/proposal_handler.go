@@ -2,14 +2,19 @@ package evm
 
 import (
 	sdk "github.com/FiboChain/fbc/libs/cosmos-sdk/types"
+	tmtypes "github.com/FiboChain/fbc/libs/tendermint/types"
 	"github.com/FiboChain/fbc/x/common"
 	"github.com/FiboChain/fbc/x/evm/types"
+	"github.com/FiboChain/fbc/x/evm/watcher"
 	govTypes "github.com/FiboChain/fbc/x/gov/types"
 )
 
 // NewManageContractDeploymentWhitelistProposalHandler handles "gov" type message in "evm"
 func NewManageContractDeploymentWhitelistProposalHandler(k *Keeper) govTypes.Handler {
 	return func(ctx sdk.Context, proposal *govTypes.Proposal) (err sdk.Error) {
+		if watcher.IsWatcherEnabled() {
+			ctx.SetWatcher(watcher.NewTxWatcher())
+		}
 		switch content := proposal.Content.(type) {
 		case types.ManageContractDeploymentWhitelistProposal:
 			return handleManageContractDeploymentWhitelistProposal(ctx, k, content)
@@ -17,6 +22,11 @@ func NewManageContractDeploymentWhitelistProposalHandler(k *Keeper) govTypes.Han
 			return handleManageContractBlockedlListProposal(ctx, k, content)
 		case types.ManageContractMethodBlockedListProposal:
 			return handleManageContractMethodBlockedlListProposal(ctx, k, content)
+		case types.ManageSysContractAddressProposal:
+			if tmtypes.HigherThanVenus3(ctx.BlockHeight()) {
+				return handleManageSysContractAddressProposal(ctx, k, content)
+			}
+			return common.ErrUnknownProposalType(types.DefaultCodespace, content.ProposalType())
 		default:
 			return common.ErrUnknownProposalType(types.DefaultCodespace, content.ProposalType())
 		}
@@ -61,4 +71,15 @@ func handleManageContractMethodBlockedlListProposal(ctx sdk.Context, k *Keeper,
 
 	// remove contract method from blocked list
 	return csdb.DeleteContractMethodBlockedList(p.ContractList)
+}
+
+func handleManageSysContractAddressProposal(ctx sdk.Context, k *Keeper,
+	p types.ManageSysContractAddressProposal) sdk.Error {
+	if p.IsAdded {
+		// add system contract address
+		return k.SetSysContractAddress(ctx, p.ContractAddr)
+	}
+
+	// remove system contract address
+	return k.DelSysContractAddress(ctx)
 }

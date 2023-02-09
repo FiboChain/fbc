@@ -9,10 +9,10 @@ import (
 	abci "github.com/FiboChain/fbc/libs/tendermint/abci/types"
 	"github.com/FiboChain/fbc/x/dex/types"
 
+	"github.com/gorilla/mux"
 	"github.com/FiboChain/fbc/libs/cosmos-sdk/client/context"
 	sdk "github.com/FiboChain/fbc/libs/cosmos-sdk/types"
 	"github.com/FiboChain/fbc/libs/cosmos-sdk/types/module"
-	"github.com/gorilla/mux"
 	"github.com/spf13/cobra"
 
 	"github.com/FiboChain/fbc/x/dex/client/cli"

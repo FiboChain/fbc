@@ -13,3 +13,9 @@ var RequestInfo = abci.RequestInfo{
 	BlockVersion: version.BlockProtocol.Uint64(),
 	P2PVersion:   version.P2PProtocol.Uint64(),
 }
+
+var IBCRequestInfo = abci.RequestInfo{
+	Version:      version.Version,
+	BlockVersion: version.IBCBlockProtocol.Uint64(),
+	P2PVersion:   version.IBCP2PProtocol.Uint64(),
+}

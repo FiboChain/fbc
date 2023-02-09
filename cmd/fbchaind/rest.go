@@ -2,7 +2,15 @@ package main
 
 import (
 	"fmt"
+
+	"github.com/FiboChain/fbc/app"
+	"github.com/FiboChain/fbc/libs/cosmos-sdk/types/tx"
+	"github.com/FiboChain/fbc/x/wasm/proxy"
+
 	mintclient "github.com/FiboChain/fbc/libs/cosmos-sdk/x/mint/client"
+	mintrest "github.com/FiboChain/fbc/libs/cosmos-sdk/x/mint/client/rest"
+	erc20client "github.com/FiboChain/fbc/x/erc20/client"
+	erc20rest "github.com/FiboChain/fbc/x/erc20/client/rest"
 	evmclient "github.com/FiboChain/fbc/x/evm/client"
 
 	"github.com/FiboChain/fbc/app/rpc"
@@ -23,12 +31,14 @@ import (
 	evmrest "github.com/FiboChain/fbc/x/evm/client/rest"
 	farmclient "github.com/FiboChain/fbc/x/farm/client"
 	farmrest "github.com/FiboChain/fbc/x/farm/client/rest"
+	fsrest "github.com/FiboChain/fbc/x/feesplit/client/rest"
 	govrest "github.com/FiboChain/fbc/x/gov/client/rest"
 	orderrest "github.com/FiboChain/fbc/x/order/client/rest"
 	paramsclient "github.com/FiboChain/fbc/x/params/client"
 	stakingrest "github.com/FiboChain/fbc/x/staking/client/rest"
 	"github.com/FiboChain/fbc/x/token"
 	tokensrest "github.com/FiboChain/fbc/x/token/client/rest"
+	wasmrest "github.com/FiboChain/fbc/x/wasm/client/rest"
 	"github.com/spf13/viper"
 )
 
@@ -36,6 +46,7 @@ import (
 // NOTE: details on the routes added for each module are in the module documentation
 // NOTE: If making updates here you also need to update the test helper in client/lcd/test_helper.go
 func registerRoutes(rs *lcd.RestServer) {
+	registerGrpc(rs)
 	rpc.RegisterRoutes(rs)
 	pathPrefix := viper.GetString(server.FlagRestPathPrefix)
 	if pathPrefix == "" {
@@ -43,6 +54,13 @@ func registerRoutes(rs *lcd.RestServer) {
 	}
 	registerRoutesV1(rs, pathPrefix)
 	registerRoutesV2(rs, pathPrefix)
+	proxy.SetCliContext(rs.CliCtx)
+}
+
+func registerGrpc(rs *lcd.RestServer) {
+	app.ModuleBasics.RegisterGRPCGatewayRoutes(rs.CliCtx, rs.GRPCGatewayRouter)
+	app.ModuleBasics.RegisterRPCRouterForGRPC(rs.CliCtx, rs.Mux)
+	tx.RegisterGRPCGatewayRoutes(rs.CliCtx, rs.GRPCGatewayRouter)
 }
 
 func registerRoutesV1(rs *lcd.RestServer, pathPrefix string) {
@@ -60,16 +78,26 @@ func registerRoutesV1(rs *lcd.RestServer, pathPrefix string) {
 	supplyrest.RegisterRoutes(rs.CliCtx, v1Router)
 	farmrest.RegisterRoutes(rs.CliCtx, v1Router)
 	evmrest.RegisterRoutes(rs.CliCtx, v1Router)
+	erc20rest.RegisterRoutes(rs.CliCtx, v1Router)
+	wasmrest.RegisterRoutes(rs.CliCtx, v1Router)
+	fsrest.RegisterRoutes(rs.CliCtx, v1Router)
 	govrest.RegisterRoutes(rs.CliCtx, v1Router,
 		[]govrest.ProposalRESTHandler{
 			paramsclient.ProposalHandler.RESTHandler(rs.CliCtx),
-			distr.ProposalHandler.RESTHandler(rs.CliCtx),
+			distr.CommunityPoolSpendProposalHandler.RESTHandler(rs.CliCtx),
+			distr.ChangeDistributionTypeProposalHandler.RESTHandler(rs.CliCtx),
+			distr.WithdrawRewardEnabledProposalHandler.RESTHandler(rs.CliCtx),
+			distr.RewardTruncatePrecisionProposalHandler.RESTHandler(rs.CliCtx),
 			dexclient.DelistProposalHandler.RESTHandler(rs.CliCtx),
 			farmclient.ManageWhiteListProposalHandler.RESTHandler(rs.CliCtx),
 			evmclient.ManageContractDeploymentWhitelistProposalHandler.RESTHandler(rs.CliCtx),
+			evmclient.ManageSysContractAddressProposalHandler.RESTHandler(rs.CliCtx),
 			mintclient.ManageTreasuresProposalHandler.RESTHandler(rs.CliCtx),
+			erc20client.TokenMappingProposalHandler.RESTHandler(rs.CliCtx),
 		},
 	)
+	mintrest.RegisterRoutes(rs.CliCtx, v1Router)
+
 }
 
 func registerRoutesV2(rs *lcd.RestServer, pathPrefix string) {
@@ -81,4 +109,5 @@ func registerRoutesV2(rs *lcd.RestServer, pathPrefix string) {
 	distrest.RegisterRoutes(rs.CliCtx, v2Router, dist.StoreKey)
 	orderrest.RegisterRoutesV2(rs.CliCtx, v2Router)
 	tokensrest.RegisterRoutesV2(rs.CliCtx, v2Router, token.StoreKey)
+	fsrest.RegisterRoutesV2(rs.CliCtx, v2Router)
 }

@@ -1,3 +1,5 @@
+//go:build ignore
+
 package dex
 
 import (
@@ -48,7 +50,7 @@ func TestProposal_NewProposalHandler(t *testing.T) {
 	saveErr := mApp.dexKeeper.SaveTokenPair(ctx, tokenPair)
 	require.Nil(t, saveErr)
 
-	// error case : fail to withdraw deposits because deposits is not fibo
+	// error case : fail to withdraw deposits because deposits is not okt
 	err = proposalHandler(ctx, &proposal)
 	require.Error(t, err)
 

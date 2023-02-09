@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/binary"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"os"
 	"sort"
@@ -12,27 +13,12 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/FiboChain/fbc/libs/tendermint/crypto"
-
-	abci "github.com/FiboChain/fbc/libs/tendermint/abci/types"
+	ethcmn "github.com/ethereum/go-ethereum/common"
+	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/gogo/protobuf/proto"
 
-	"github.com/FiboChain/fbc/x/gov"
-
-	ethtypes "github.com/ethereum/go-ethereum/core/types"
-
-	"github.com/spf13/viper"
-
 	"github.com/FiboChain/fbc/app"
-	minttypes "github.com/FiboChain/fbc/libs/cosmos-sdk/x/mint"
-	supplytypes "github.com/FiboChain/fbc/libs/cosmos-sdk/x/supply"
-	"github.com/FiboChain/fbc/libs/iavl"
-	dbm "github.com/FiboChain/fbc/libs/tm-db"
-	evmtypes "github.com/FiboChain/fbc/x/evm/types"
-	slashingtypes "github.com/FiboChain/fbc/x/slashing"
-	tokentypes "github.com/FiboChain/fbc/x/token/types"
-	"github.com/spf13/cobra"
-
+	"github.com/FiboChain/fbc/cmd/fbchaind/base"
 	"github.com/FiboChain/fbc/libs/cosmos-sdk/codec"
 	"github.com/FiboChain/fbc/libs/cosmos-sdk/server"
 	sdk "github.com/FiboChain/fbc/libs/cosmos-sdk/types"
@@ -40,8 +26,22 @@ import (
 	acctypes "github.com/FiboChain/fbc/libs/cosmos-sdk/x/auth/types"
 	distypes "github.com/FiboChain/fbc/libs/cosmos-sdk/x/distribution/types"
 	govtypes "github.com/FiboChain/fbc/libs/cosmos-sdk/x/gov/types"
+	minttypes "github.com/FiboChain/fbc/libs/cosmos-sdk/x/mint"
 	stakingtypes "github.com/FiboChain/fbc/libs/cosmos-sdk/x/staking/types"
+	supplytypes "github.com/FiboChain/fbc/libs/cosmos-sdk/x/supply"
+	"github.com/FiboChain/fbc/libs/iavl"
+	abci "github.com/FiboChain/fbc/libs/tendermint/abci/types"
+	"github.com/FiboChain/fbc/libs/tendermint/crypto"
+	tmtypes "github.com/FiboChain/fbc/libs/tendermint/types"
+	dbm "github.com/FiboChain/fbc/libs/tm-db"
 	"github.com/FiboChain/fbc/x/distribution/types"
+	evmtypes "github.com/FiboChain/fbc/x/evm/types"
+	"github.com/FiboChain/fbc/x/gov"
+	slashingtypes "github.com/FiboChain/fbc/x/slashing"
+	tokentypes "github.com/FiboChain/fbc/x/token/types"
+
+	"github.com/spf13/cobra"
+	"github.com/spf13/viper"
 )
 
 type (
@@ -57,22 +57,28 @@ const (
 	KeyAcc          = "s/k:acc/"
 	KeySupply       = "s/k:supply/"
 	KeyEvm          = "s/k:evm/"
+	KeyEvmLegacy    = "s/k:evmlegacy/"
 	KeyParams       = "s/k:params/"
 	KeyStaking      = "s/k:staking/"
 	KeySlashing     = "s/k:slashing/"
 
 	DefaultCacheSize int = 100000
 
-	flagStart     = "start"
-	flagLimit     = "limit"
-	flagHex       = "hex"
-	flagPrefix    = "prefix"
-	flagKey       = "key"
-	flagKeyPrefix = "keyprefix"
+	flagStart            = "start"
+	flagLimit            = "limit"
+	flagHex              = "hex"
+	flagPrefix           = "prefix"
+	flagKey              = "key"
+	flagNodeHash         = "nodehash"
+	flagKeyPrefix        = "keyprefix"
+	flagNodePrefix       = "node-prefix"
+	flagNodePrefixFormat = "node-prefix-format"
+	flagCount            = "count"
 )
 
 var printKeysDict = map[string]formatKeyValue{
 	KeyEvm:          evmPrintKey,
+	KeyEvmLegacy:    evmPrintKey,
 	KeyAcc:          accPrintKey,
 	KeyParams:       paramsPrintKey,
 	KeyStaking:      stakingPrintKey,
@@ -102,24 +108,32 @@ type iaviewerContext struct {
 	Limit     int
 	Codec     *codec.Codec
 
-	flags iaviewerFlags
+	flags          iaviewerFlags
+	noParseVersion bool
+	extra          map[string]interface{}
 }
 
 func iaviewerCmd(ctx *server.Context, cdc *codec.Codec) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "iaviewer",
 		Short: "Read iavl tree data from db",
+		PersistentPreRun: func(cmd *cobra.Command, args []string) {
+			iavl.SetEnableFastStorage(false)
+			viper.Set(iavl.FlagIavlEnableFastStorage, false)
+		},
 	}
-	iavlCtx := &iaviewerContext{Codec: cdc, DbBackend: dbm.BackendType(ctx.Config.DBBackend)}
+	iavlCtx := &iaviewerContext{Codec: cdc, DbBackend: dbm.BackendType(ctx.Config.DBBackend), extra: map[string]interface{}{}}
 
 	cmd.AddCommand(
 		iaviewerReadCmd(iavlCtx),
+		iaviewerReadNodeCmd(iavlCtx),
+		iaviewerDBNodeCmd(iavlCtx),
 		iaviewerStatusCmd(iavlCtx),
 		iaviewerDiffCmd(iavlCtx),
 		iaviewerVersionsCmd(iavlCtx),
 		iaviewerListModulesCmd(),
 	)
-	iavlCtx.flags.DbBackend = cmd.PersistentFlags().String(flagDBBackend, "", "Database backend: goleveldb | rocksdb")
+	iavlCtx.flags.DbBackend = cmd.PersistentFlags().String(sdk.FlagDBBackend, tmtypes.DBBackend, "Database backend: goleveldb | rocksdb")
 	iavlCtx.flags.Start = cmd.PersistentFlags().Int(flagStart, 0, "index of result set start from")
 	iavlCtx.flags.Limit = cmd.PersistentFlags().Int(flagLimit, 0, "limit of result set, 0 means no limit")
 	iavlCtx.flags.Prefix = cmd.PersistentFlags().String(flagPrefix, "", "the prefix of iavl tree, module value must be \"\" if prefix is set")
@@ -148,7 +162,7 @@ func iaviewerCmdParseArgs(ctx *iaviewerContext, args []string) (err error) {
 		return fmt.Errorf("must specify data_dir and module")
 	}
 	dataDir, module, version := args[0], args[1], 0
-	if len(args) == 3 {
+	if !ctx.noParseVersion && len(args) == 3 {
 		version, err = strconv.Atoi(args[2])
 		if err != nil {
 			return fmt.Errorf("invalid version: %s, error : %w\n", args[2], err)
@@ -201,6 +215,42 @@ func iaviewerReadCmd(ctx *iaviewerContext) *cobra.Command {
 	cmd.PersistentFlags().String(flagKey, "", "print only the value for this key, key must be in hex format.\n"+
 		"if specified, keyprefix, start and limit flags would be ignored")
 	cmd.PersistentFlags().String(flagKeyPrefix, "", "print values for keys with specified prefix, prefix must be in hex format.")
+	return cmd
+}
+
+func iaviewerReadNodeCmd(ctx *iaviewerContext) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "read-node <data_dir> <module> [version]",
+		Short: "Read iavl tree node from db",
+		Long:  "Read iavl tree node from db, you must specify data_dir and module, if version is 0 or not specified, read data from the latest version.\n",
+		PreRunE: func(cmd *cobra.Command, args []string) (err error) {
+			iaviewerCmdParseFlags(ctx)
+			return iaviewerCmdParseArgs(ctx, args)
+		},
+		RunE: func(cmd *cobra.Command, args []string) (err error) {
+			return iaviewerReadNodeData(ctx)
+		},
+	}
+	cmd.PersistentFlags().String(flagNodeHash, "", "print only the value for this hash, key must be in hex format.")
+	return cmd
+}
+
+func iaviewerDBNodeCmd(ctx *iaviewerContext) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "db-node <data_dir> <module>",
+		Short: "read iavl tree node from db direct",
+		PreRunE: func(cmd *cobra.Command, args []string) (err error) {
+			ctx.noParseVersion = true
+			iaviewerCmdParseFlags(ctx)
+			return iaviewerCmdParseArgs(ctx, args)
+		},
+		RunE: func(cmd *cobra.Command, args []string) (err error) {
+			return iaviewerDBNodeData(ctx)
+		},
+	}
+	ctx.extra[flagNodePrefix] = cmd.PersistentFlags().String(flagNodePrefix, "r", "node prefix, (r, n, o, f, m, ...)")
+	ctx.extra[flagNodePrefixFormat] = cmd.PersistentFlags().String(flagNodePrefixFormat, "a", "a: nodePrefix in ascii, h: nodePrefix in hex")
+	ctx.extra[flagCount] = cmd.PersistentFlags().Bool(flagCount, true, "only count node number, do not print node data")
 	return cmd
 }
 
@@ -273,7 +323,7 @@ func iaviewerDiffCmd(ctx *iaviewerContext) *cobra.Command {
 
 // iaviewerPrintDiff reads different key-value from leveldb according two paths
 func iaviewerPrintDiff(ctx *iaviewerContext, version2 int) error {
-	db, err := OpenDB(ctx.DataDir, ctx.DbBackend)
+	db, err := base.OpenDB(ctx.DataDir, ctx.DbBackend)
 	if err != nil {
 		return fmt.Errorf("error opening DB: %w", err)
 	}
@@ -308,7 +358,7 @@ func iaviewerPrintDiff(ctx *iaviewerContext, version2 int) error {
 
 	go func(wg *sync.WaitGroup) {
 		tree.IterateRange(startKey, endKey, true, func(key, value []byte) bool {
-			_, v2 := compareTree.Get(key)
+			_, v2 := compareTree.GetWithIndex(key)
 			if v2 == nil {
 				fmt.Printf("---only in ver1 %d, %s\n", ctx.Version, formatKV(ctx.Codec, ctx.Prefix, key, value))
 			} else {
@@ -324,7 +374,7 @@ func iaviewerPrintDiff(ctx *iaviewerContext, version2 int) error {
 
 	go func(wg *sync.WaitGroup) {
 		compareTree.IterateRange(startKey, endKey, true, func(key, value []byte) bool {
-			_, v1 := tree.Get(key)
+			_, v1 := tree.GetWithIndex(key)
 			if v1 == nil {
 				fmt.Printf("+++only in ver2 %d, %s\n", version2, formatKV(ctx.Codec, ctx.Prefix, key, value))
 			}
@@ -340,7 +390,7 @@ func iaviewerPrintDiff(ctx *iaviewerContext, version2 int) error {
 
 // iaviewerReadData reads key-value from leveldb
 func iaviewerReadData(ctx *iaviewerContext) error {
-	db, err := OpenDB(ctx.DataDir, ctx.DbBackend)
+	db, err := base.OpenDB(ctx.DataDir, ctx.DbBackend)
 	if err != nil {
 		return fmt.Errorf("error opening DB: %w", err)
 	}
@@ -357,7 +407,7 @@ func iaviewerReadData(ctx *iaviewerContext) error {
 		if err != nil {
 			return fmt.Errorf("error decoding key: %w", err)
 		}
-		i, value := tree.Get(keyByte)
+		i, value := tree.GetWithIndex(keyByte)
 
 		if impl, exit := printKeysDict[ctx.Prefix]; exit && !viper.GetBool(flagHex) {
 			kvFormat := impl(ctx.Codec, keyByte, value)
@@ -375,8 +425,140 @@ func iaviewerReadData(ctx *iaviewerContext) error {
 	return nil
 }
 
+func iaviewerReadNodeData(ctx *iaviewerContext) error {
+	db, err := base.OpenDB(ctx.DataDir, ctx.DbBackend)
+	if err != nil {
+		return fmt.Errorf("error opening DB: %w", err)
+	}
+	defer db.Close()
+
+	tree, err := ReadTree(db, ctx.Version, []byte(ctx.Prefix), DefaultCacheSize)
+	if err != nil {
+		return fmt.Errorf("error reading data: %w", err)
+	}
+	fmt.Printf("module: %s, prefix key: %s\n\n", ctx.Module, ctx.Prefix)
+
+	var nodeHash []byte
+	if key := viper.GetString(flagNodeHash); key != "" {
+		nodeHash, err = hex.DecodeString(key)
+		if err != nil {
+			return fmt.Errorf("error decoding key: %w", err)
+		}
+		if len(nodeHash) != 32 {
+			return fmt.Errorf("invalid node hash: %s", key)
+		}
+
+	} else {
+		nodeHash = tree.Hash()
+	}
+
+	node := tree.DebugGetNode(nodeHash)
+	if node == nil {
+		return fmt.Errorf("node not found: %s", nodeHash)
+	}
+
+	jstr, err := json.Marshal(newNodeStringFromNodeJson(iavl.NodeToNodeJson(node)))
+	if err != nil {
+		fmt.Println(node.String())
+	} else {
+		fmt.Println(string(jstr))
+	}
+
+	return nil
+}
+
+func iaviewerDBNodeData(ctx *iaviewerContext) error {
+	db, err := base.OpenDB(ctx.DataDir, ctx.DbBackend)
+	if err != nil {
+		return fmt.Errorf("error opening DB: %w", err)
+	}
+	defer db.Close()
+
+	pdb := dbm.NewPrefixDB(db, []byte(ctx.Prefix))
+
+	nodePrefixFormat := strings.ToLower(*ctx.extra[flagNodePrefixFormat].(*string))
+
+	nodePrefix := *ctx.extra[flagNodePrefix].(*string)
+	start := []byte(nodePrefix)
+	switch nodePrefixFormat {
+	case "hex":
+		fallthrough
+	case "h":
+		start, err = hex.DecodeString(nodePrefix)
+		if err != nil {
+			return fmt.Errorf("error decoding node prefix: %w", err)
+		}
+	}
+	end := calcEndKey(start)
+	iter, err := pdb.Iterator(start, end)
+	if err != nil {
+		return fmt.Errorf("error opening iterator: %w", err)
+	}
+	defer iter.Close()
+
+	onlyCount := *ctx.extra[flagCount].(*bool)
+	count := 0
+	index := 0
+
+	if onlyCount {
+		for ; iter.Valid(); iter.Next() {
+			if ctx.Start > index {
+				continue
+			}
+			count++
+			if ctx.Limit != 0 && ctx.Limit < count {
+				break
+			}
+		}
+	} else {
+		for ; iter.Valid(); iter.Next() {
+			if ctx.Start > index {
+				continue
+			}
+			count++
+			if ctx.Limit != 0 && ctx.Limit < count {
+				break
+			}
+			key := iter.Key()
+			value := iter.Value()
+			fmt.Printf("key:%s, value:%s\n", hex.EncodeToString(key), hex.EncodeToString(value))
+		}
+	}
+	fmt.Printf("count : %d\n", count)
+
+	return nil
+}
+
+type nodeString struct {
+	Key          string `json:"key"`
+	Value        string `json:"value"`
+	Hash         string `json:"hash"`
+	LeftHash     string `json:"left_hash"`
+	RightHash    string `json:"right_hash"`
+	Version      int64  `json:"version"`
+	Size         int64  `json:"size"`
+	Height       int8   `json:"height"`
+	Persisted    bool   `json:"persisted"`
+	PrePersisted bool   `json:"pre_persisted"`
+}
+
+func newNodeStringFromNodeJson(nodeJson *iavl.NodeJson) *nodeString {
+	return &nodeString{
+		Key:          hex.EncodeToString(nodeJson.Key),
+		Value:        hex.EncodeToString(nodeJson.Value),
+		Hash:         hex.EncodeToString(nodeJson.Hash),
+		LeftHash:     hex.EncodeToString(nodeJson.LeftHash),
+		RightHash:    hex.EncodeToString(nodeJson.RightHash),
+		Version:      nodeJson.Version,
+		Size:         nodeJson.Size,
+		Height:       nodeJson.Height,
+		Persisted:    nodeJson.Persisted,
+		PrePersisted: nodeJson.PrePersisted,
+	}
+}
+
 func iaviewerStatus(ctx *iaviewerContext) error {
-	db, err := OpenDB(ctx.DataDir, ctx.DbBackend)
+	db, err := base.OpenDB(ctx.DataDir, ctx.DbBackend)
 	if err != nil {
 		return fmt.Errorf("error opening DB: %w", err)
 	}
@@ -397,10 +579,17 @@ func printIaviewerStatus(tree *iavl.MutableTree) {
 		"\tsize: %d\n"+
 		"\tcurrent version: %d\n"+
 		"\theight: %d\n", tree.Hash(), tree.Size(), tree.Version(), tree.Height())
+
+	fss, err := tree.DebugFssVersion()
+	if err != nil {
+		fmt.Printf("fss version error %w\n", err)
+	} else {
+		fmt.Printf("fss version: %s\n", string(fss))
+	}
 }
 
 func iaviewerVersions(ctx *iaviewerContext) error {
-	db, err := OpenDB(ctx.DataDir, ctx.DbBackend)
+	db, err := base.OpenDB(ctx.DataDir, ctx.DbBackend)
 	if err != nil {
 		return fmt.Errorf("error opening DB: %w", err)
 	}
@@ -498,10 +687,10 @@ func printTree(ctx *iaviewerContext, tree *iavl.MutableTree) {
 			fmt.Printf("keyprefix must be in hex format: %s\n", err)
 			os.Exit(1)
 		}
-		index, _ := tree.Get(keyPrefix)
+		index, _ := tree.GetWithIndex(keyPrefix)
 		ctx.Start += int(index)
 		endKey = calcEndKey(keyPrefix)
-		index2, _ := tree.Get(endKey)
+		index2, _ := tree.GetWithIndex(endKey)
 		total = index2 - index
 		limit := int(total)
 		if ctx.Limit == 0 || limit < ctx.Limit {
@@ -542,7 +731,7 @@ func printTree(ctx *iaviewerContext, tree *iavl.MutableTree) {
 }
 
 func printByKey(cdc *codec.Codec, tree *iavl.MutableTree, module string, key []byte) {
-	_, value := tree.Get(key)
+	_, value := tree.GetWithIndex(key)
 	printKV(cdc, module, key, value)
 }
 
@@ -700,6 +889,10 @@ func stakingPrintKey(cdc *codec.Codec, key []byte, value []byte) string {
 }
 
 func paramsPrintKey(cdc *codec.Codec, key []byte, value []byte) string {
+	if bytes.Contains(key, []byte("custom")) {
+		length := len([]byte("custom/evm/"))
+		return evmPrintKey(cdc, key[length:], value)
+	}
 	return fmt.Sprintf("paramsKey:%s;value:%s", string(key), string(value))
 }
 
@@ -747,6 +940,9 @@ func evmPrintKey(cdc *codec.Codec, key []byte, value []byte) string {
 	case evmtypes.KeyPrefixContractBlockedList[0]:
 		return fmt.Sprintf("contractBlockedAddres:%X;methods:%s", key[1:], value)
 	default:
+		if bytes.HasPrefix(key, evmtypes.KeyPrefixEvmRootHash) {
+			return fmt.Sprintf("evmRootHash: %s", ethcmn.BytesToHash(value))
+		}
 		return defaultKvFormatter(key, value)
 	}
 }
@@ -765,30 +961,6 @@ func ReadTree(db dbm.DB, version int, prefix []byte, cacheSize int) (*iavl.Mutab
 	}
 	_, err = tree.LoadVersion(int64(version))
 	return tree, err
-}
-
-func OpenDB(dir string, backend dbm.BackendType) (db dbm.DB, err error) {
-	switch {
-	case strings.HasSuffix(dir, ".db"):
-		dir = dir[:len(dir)-3]
-	case strings.HasSuffix(dir, ".db/"):
-		dir = dir[:len(dir)-4]
-	default:
-		return nil, fmt.Errorf("database directory must end with .db")
-	}
-	//doesn't work on windows!
-	cut := strings.LastIndex(dir, "/")
-	if cut == -1 {
-		return nil, fmt.Errorf("cannot cut paths on %s", dir)
-	}
-	defer func() {
-		if r := recover(); r != nil {
-			err = fmt.Errorf("couldn't create db: %v", r)
-		}
-	}()
-	name := dir[cut+1:]
-	db = dbm.NewDB(name, backend, dir[:cut])
-	return db, nil
 }
 
 // parseWeaveKey assumes a separating : where all in front should be ascii,

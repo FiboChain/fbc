@@ -3,13 +3,13 @@ package rpc
 import (
 	"bufio"
 	"fmt"
-	"github.com/FiboChain/fbc/app/rpc/nacos"
 	"os"
 	"strings"
 
 	"github.com/ethereum/go-ethereum/rpc"
 	"github.com/FiboChain/fbc/app/crypto/ethsecp256k1"
 	"github.com/FiboChain/fbc/app/crypto/hd"
+	"github.com/FiboChain/fbc/app/rpc/nacos"
 	"github.com/FiboChain/fbc/app/rpc/pendingtx"
 	"github.com/FiboChain/fbc/app/rpc/websockets"
 	"github.com/FiboChain/fbc/libs/cosmos-sdk/client/flags"
@@ -19,18 +19,18 @@ import (
 	cmserver "github.com/FiboChain/fbc/libs/cosmos-sdk/server"
 	sdk "github.com/FiboChain/fbc/libs/cosmos-sdk/types"
 	"github.com/FiboChain/fbc/libs/tendermint/libs/log"
+
 	"github.com/spf13/viper"
 )
 
 const (
 	flagUnlockKey             = "unlock-key"
-	flagWebsocket             = "wsport"
+	FlagWebsocket             = "wsport"
 	FlagPersonalAPI           = "personal-api"
 	FlagDebugAPI              = "debug-api"
 	FlagRateLimitAPI          = "rpc.rate-limit-api"
 	FlagRateLimitCount        = "rpc.rate-limit-count"
 	FlagRateLimitBurst        = "rpc.rate-limit-burst"
-	FlagEnableMonitor         = "rpc.enable-monitor"
 	FlagDisableAPI            = "rpc.disable-api"
 	FlagKafkaAddr             = "pendingtx.kafka-addr"
 	FlagKafkaTopic            = "pendingtx.kafka-topic"
@@ -42,12 +42,6 @@ const (
 	FlagRestNacosUrls         = "rest.nacos_urls"
 	FlagRestNacosNamespaceId  = "rest.nacos_namespace_id"
 	FlagExternalListenAddr    = "rest.external_laddr"
-
-	MetricsNamespace = "x"
-	// MetricsSubsystem is a subsystem shared by all metrics exposed by this package.
-	MetricsSubsystem = "rpc"
-
-	MetricsFieldName = "Metrics"
 )
 
 // RegisterRoutes creates a new server and registers the `/rpc` endpoint.
@@ -99,7 +93,7 @@ func RegisterRoutes(rs *lcd.RestServer) {
 	rs.Mux.HandleFunc("/", server.ServeHTTP).Methods("POST", "OPTIONS")
 
 	// start websockets server
-	websocketAddr := viper.GetString(flagWebsocket)
+	websocketAddr := viper.GetString(FlagWebsocket)
 	ws := websockets.NewServer(rs.CliCtx, rs.Logger(), websocketAddr)
 	ws.Start()
 

@@ -6,28 +6,12 @@ import (
 	"github.com/FiboChain/fbc/libs/cosmos-sdk/store/types"
 	"github.com/FiboChain/fbc/libs/tendermint/consensus"
 	"github.com/FiboChain/fbc/libs/tendermint/state"
+	sm "github.com/FiboChain/fbc/libs/tendermint/state"
 	ttypes "github.com/FiboChain/fbc/libs/tendermint/types"
 	"github.com/FiboChain/fbc/x/evm/watcher"
 	"github.com/spf13/cobra"
 	"testing"
 )
-
-func getCommandNodeModeRpcParalleledTx() *cobra.Command {
-	return getCommand([]universeFlag{
-		&stringFlag{
-			Name:    apptype.FlagNodeMode,
-			Default: "",
-			Changed: true,
-			Value:   string(apptype.RpcNode),
-		},
-		&boolFlag{
-			Name:    state.FlagParalleledTx,
-			Default: false,
-			Changed: true,
-			Value:   true,
-		},
-	})
-}
 
 func getCommandNodeModeRpcPruningNothing() *cobra.Command {
 	return getCommand([]universeFlag{
@@ -42,23 +26,6 @@ func getCommandNodeModeRpcPruningNothing() *cobra.Command {
 			Default: types.PruningOptionDefault,
 			Changed: true,
 			Value:   types.PruningOptionNothing,
-		},
-	})
-}
-
-func getCommandFastQueryParalleledTx() *cobra.Command {
-	return getCommand([]universeFlag{
-		&boolFlag{
-			Name:    watcher.FlagFastQuery,
-			Default: false,
-			Changed: true,
-			Value:   true,
-		},
-		&boolFlag{
-			Name:    state.FlagParalleledTx,
-			Default: false,
-			Changed: true,
-			Value:   true,
 		},
 	})
 }
@@ -97,42 +64,35 @@ func getCommandEnablePreruntxDownloadDelta() *cobra.Command {
 	})
 }
 
-func getCommandUploadDeltaParalleledTx() *cobra.Command {
+func getCommandDeliverTxsExecModeSerial(v int) *cobra.Command {
 	return getCommand([]universeFlag{
-		&boolFlag{
-			Name:    ttypes.FlagUploadDDS,
-			Default: false,
+		&intFlag{
+			Name:    sm.FlagDeliverTxsExecMode,
+			Default: 0,
 			Changed: true,
-			Value:   true,
-		},
-		&boolFlag{
-			Name:    state.FlagParalleledTx,
-			Default: false,
-			Changed: true,
-			Value:   true,
+			Value:   v,
 		},
 	})
 }
 
 func TestCheckStart(t *testing.T) {
-	type args struct {
-		cmd *cobra.Command
-	}
 	tests := []struct {
 		name    string
-		args    args
+		cmdFunc func()
 		wantErr bool
 	}{
-		{name: "1. conflicts --fast-query and --paralleled-tx", args: args{cmd: getCommandFastQueryParalleledTx()}, wantErr: true},
-		{name: "2. conflicts --fast-query and --pruning=nothing", args: args{cmd: getCommandFastQueryPruningNothing()}, wantErr: true},
-		{name: "3. conflicts --enable-preruntx and --download-delta", args: args{cmd: getCommandEnablePreruntxDownloadDelta()}, wantErr: true},
-		{name: "4. conflicts --upload-delta and --paralleled-tx=true", args: args{cmd: getCommandUploadDeltaParalleledTx()}, wantErr: true},
-		{name: "5. conflicts --node-mod=rpc and --paralleled-tx=true", args: args{cmd: getCommandNodeModeRpcParalleledTx()}, wantErr: true},
-		{name: "6. conflicts --node-mod=rpc and --pruning=nothing", args: args{cmd: getCommandNodeModeRpcPruningNothing()}, wantErr: true},
+		{name: "range-TxsExecModeSerial 0", cmdFunc: func() { getCommandDeliverTxsExecModeSerial(int(state.DeliverTxsExecModeSerial)) }, wantErr: false},
+		{name: "range-TxsExecModeSerial 1", cmdFunc: func() { getCommandDeliverTxsExecModeSerial(1) }, wantErr: true},
+		{name: "range-TxsExecModeSerial 2", cmdFunc: func() { getCommandDeliverTxsExecModeSerial(state.DeliverTxsExecModeParallel) }, wantErr: false},
+		{name: "range-TxsExecModeSerial 3", cmdFunc: func() { getCommandDeliverTxsExecModeSerial(3) }, wantErr: true},
+		{name: "1. conflicts --fast-query and --pruning=nothing", cmdFunc: func() { getCommandFastQueryPruningNothing() }, wantErr: true},
+		{name: "2. conflicts --enable-preruntx and --download-delta", cmdFunc: func() { getCommandEnablePreruntxDownloadDelta() }, wantErr: true},
+		{name: "3. conflicts --node-mod=rpc and --pruning=nothing", cmdFunc: func() { getCommandNodeModeRpcPruningNothing() }, wantErr: true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			var err error
+			tt.cmdFunc()
 			if err = CheckStart(); (err != nil) != tt.wantErr {
 				t.Errorf("CheckStart() error = %v, wantErr %v", err, tt.wantErr)
 			}

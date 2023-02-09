@@ -1,25 +1,30 @@
 package app
 
 import (
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
 
+	"github.com/spf13/viper"
+
+	"github.com/FiboChain/fbc/app/config"
 	appconfig "github.com/FiboChain/fbc/app/config"
+	"github.com/FiboChain/fbc/app/rpc/backend"
 	"github.com/FiboChain/fbc/app/types"
 	"github.com/FiboChain/fbc/libs/cosmos-sdk/client/flags"
 	"github.com/FiboChain/fbc/libs/cosmos-sdk/server"
 	store "github.com/FiboChain/fbc/libs/cosmos-sdk/store/iavl"
+	"github.com/FiboChain/fbc/libs/cosmos-sdk/types/innertx"
 	"github.com/FiboChain/fbc/libs/iavl"
 	abcitypes "github.com/FiboChain/fbc/libs/tendermint/abci/types"
 	"github.com/FiboChain/fbc/libs/tendermint/libs/log"
 	"github.com/FiboChain/fbc/libs/tendermint/mempool"
 	evmtypes "github.com/FiboChain/fbc/x/evm/types"
 	"github.com/FiboChain/fbc/x/evm/watcher"
-	"github.com/spf13/viper"
 )
 
-func setNodeConfig(ctx *server.Context) {
+func setNodeConfig(ctx *server.Context) error {
 	nodeMode := viper.GetString(types.FlagNodeMode)
 
 	ctx.Logger.Info("Starting node", "mode", nodeMode)
@@ -31,6 +36,11 @@ func setNodeConfig(ctx *server.Context) {
 		setValidatorConfig(ctx)
 	case types.ArchiveNode:
 		setArchiveConfig(ctx)
+	case types.InnertxNode:
+		if !innertx.IsAvailable {
+			return errors.New("innertx is not available for innertx node")
+		}
+		setRpcConfig(ctx)
 	default:
 		if len(nodeMode) > 0 {
 			ctx.Logger.Error(
@@ -38,6 +48,7 @@ func setNodeConfig(ctx *server.Context) {
 					nodeMode, types.FlagNodeMode, types.RpcNode, types.ValidatorNode, types.ArchiveNode))
 		}
 	}
+	return nil
 }
 
 func setRpcConfig(ctx *server.Context) {
@@ -45,6 +56,8 @@ func setRpcConfig(ctx *server.Context) {
 	viper.SetDefault(evmtypes.FlagEnableBloomFilter, true)
 	viper.SetDefault(watcher.FlagFastQueryLru, 10000)
 	viper.SetDefault(watcher.FlagFastQuery, true)
+	viper.SetDefault(backend.FlagApiBackendBlockLruCache, 30000)
+	viper.SetDefault(backend.FlagApiBackendTxLruCache, 100000)
 	viper.SetDefault(iavl.FlagIavlEnableAsyncCommit, true)
 	viper.SetDefault(flags.FlagMaxOpenConnections, 20000)
 	viper.SetDefault(mempool.FlagEnablePendingPool, true)
@@ -59,13 +72,22 @@ func setRpcConfig(ctx *server.Context) {
 
 func setValidatorConfig(ctx *server.Context) {
 	viper.SetDefault(abcitypes.FlagDisableABCIQueryMutex, true)
-	viper.SetDefault(appconfig.FlagEnableDynamicGp, false)
+	viper.SetDefault(appconfig.FlagDynamicGpMode, types.MinimalGpMode)
 	viper.SetDefault(iavl.FlagIavlEnableAsyncCommit, true)
 	viper.SetDefault(store.FlagIavlCacheSize, 10000000)
 	viper.SetDefault(server.FlagPruning, "everything")
-	ctx.Logger.Info(fmt.Sprintf("Set --%s=%v\n--%s=%v\n--%s=%v\n--%s=%v\n--%s=%v by validator node mode",
-		abcitypes.FlagDisableABCIQueryMutex, true, appconfig.FlagEnableDynamicGp, false, iavl.FlagIavlEnableAsyncCommit, true,
-		store.FlagIavlCacheSize, 10000000, server.FlagPruning, "everything"))
+	viper.SetDefault(evmtypes.FlagEnableBloomFilter, false)
+	viper.SetDefault(watcher.FlagFastQuery, false)
+	viper.SetDefault(appconfig.FlagMaxGasUsedPerBlock, 120000000)
+	viper.SetDefault(mempool.FlagEnablePendingPool, false)
+	viper.SetDefault(config.FlagEnablePGU, true)
+
+
+	ctx.Logger.Info(fmt.Sprintf("Set --%s=%v\n--%s=%v\n--%s=%v\n--%s=%v\n--%s=%v\n--%s=%v\n--%s=%v\n--%s=%v\n--%s=%v by validator node mode",
+		abcitypes.FlagDisableABCIQueryMutex, true, appconfig.FlagDynamicGpMode, types.MinimalGpMode, iavl.FlagIavlEnableAsyncCommit, true,
+		store.FlagIavlCacheSize, 10000000, server.FlagPruning, "everything",
+		evmtypes.FlagEnableBloomFilter, false, watcher.FlagFastQuery, false, appconfig.FlagMaxGasUsedPerBlock, 120000000,
+		mempool.FlagEnablePendingPool, false))
 }
 
 func setArchiveConfig(ctx *server.Context) {
@@ -89,11 +111,7 @@ func logStartingFlags(logger log.Logger) {
 	kvMap := make(map[string]interface{})
 	var keys []string
 	for _, key := range viper.AllKeys() {
-
-		if strings.Index(key, "stream.") == 0 {
-			continue
-		}
-		if strings.Index(key, "backend.") == 0 {
+		if strings.Index(key, "infura.") == 0 {
 			continue
 		}
 

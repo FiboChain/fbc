@@ -12,6 +12,7 @@ import (
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/eth/filters"
 	"github.com/ethereum/go-ethereum/rpc"
+	"github.com/spf13/viper"
 
 	"github.com/FiboChain/fbc/app/rpc/monitor"
 	rpctypes "github.com/FiboChain/fbc/app/rpc/types"
@@ -22,19 +23,21 @@ import (
 	evmtypes "github.com/FiboChain/fbc/x/evm/types"
 	"github.com/FiboChain/fbc/x/evm/watcher"
 
-
 	"golang.org/x/time/rate"
 )
 
-var ErrServerBusy = errors.New("server is too busy")
-var ErrMethodNotAllowed = errors.New("the method is not allowed")
+var (
+	ErrServerBusy       = errors.New("server is too busy")
+	ErrMethodNotAllowed = errors.New("the method is not allowed")
+	NameSpace           = "filters"
+)
 
 // Backend defines the methods requided by the PublicFilterAPI backend
 type Backend interface {
-	GetBlockByNumber(blockNum rpctypes.BlockNumber) (*watcher.Block, error)
+	GetBlockByNumber(blockNum rpctypes.BlockNumber, fullTx bool) (*watcher.Block, error)
 	HeaderByNumber(blockNr rpctypes.BlockNumber) (*ethtypes.Header, error)
 	HeaderByHash(blockHash common.Hash) (*ethtypes.Header, error)
-	GetLogs(blockHash common.Hash) ([][]*ethtypes.Log, error)
+	GetLogs(height int64) ([][]*ethtypes.Log, error)
 
 	GetTransactionLogs(txHash common.Hash) ([]*ethtypes.Log, error)
 	BloomStatus() (uint64, uint64)
@@ -42,6 +45,9 @@ type Backend interface {
 	GetBlockHashByHeight(height rpctypes.BlockNumber) (common.Hash, error)
 	GetRateLimiter(apiName string) *rate.Limiter
 	IsDisabled(apiName string) bool
+	// logs limitations
+	LogsLimit() int
+	LogsTimeout() time.Duration
 }
 
 // consider a filter inactive if it has not been polled for within deadline
@@ -67,7 +73,7 @@ type PublicFilterAPI struct {
 	filtersMu sync.Mutex
 	filters   map[rpc.ID]*filter
 	logger    log.Logger
-	Metrics   map[string]*monitor.RpcMetrics
+	Metrics   *monitor.RpcMetrics
 }
 
 // NewAPI returns a new PublicFilterAPI instance.
@@ -83,7 +89,11 @@ func NewAPI(clientCtx clientcontext.CLIContext, log log.Logger, backend Backend)
 		backend:   backend,
 		filters:   make(map[rpc.ID]*filter),
 		events:    NewEventSystem(clientCtx.Client),
-		logger:    log.With("module", "json-rpc", "namespace", "eth"),
+		logger:    log.With("module", "json-rpc", "namespace", NameSpace),
+	}
+
+	if viper.GetBool(monitor.FlagEnableMonitor) {
+		api.Metrics = monitor.MakeMonitorMetrics(NameSpace)
 	}
 
 	go api.timeoutLoop()

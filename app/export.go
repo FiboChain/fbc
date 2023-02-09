@@ -25,7 +25,7 @@ func NewDefaultGenesisState() simapp.GenesisState {
 
 // ExportAppStateAndValidators exports the state of the application for a genesis
 // file.
-func (app *FBchainApp) ExportAppStateAndValidators(
+func (app *FBChainApp) ExportAppStateAndValidators(
 	forZeroHeight bool, jailWhiteList []string,
 ) (appState json.RawMessage, validators []tmtypes.GenesisValidator, err error) {
 
@@ -38,7 +38,7 @@ func (app *FBchainApp) ExportAppStateAndValidators(
 
 	// Export genesis to be used by SDK modules
 	genState := app.mm.ExportGenesis(ctx)
-	appState, err = codec.MarshalJSONIndent(app.cdc, genState)
+	appState, err = codec.MarshalJSONIndent(app.marshal.GetCdc(), genState)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -51,8 +51,9 @@ func (app *FBchainApp) ExportAppStateAndValidators(
 
 // prepare for fresh start at zero height
 // NOTE zero height genesis is a temporary feature which will be deprecated
-//      in favour of export at a block height
-func (app *FBchainApp) prepForZeroHeightGenesis(ctx sdk.Context, jailWhiteList []string) {
+//
+//	in favour of export at a block height
+func (app *FBChainApp) prepForZeroHeightGenesis(ctx sdk.Context, jailWhiteList []string) {
 	applyWhiteList := false
 
 	//Check if there is a whitelist
@@ -95,7 +96,7 @@ func (app *FBchainApp) prepForZeroHeightGenesis(ctx sdk.Context, jailWhiteList [
 
 	// set context height to zero
 	//height := ctx.BlockHeight()
-	//ctx = ctx.WithBlockHeight(0)
+	//ctx.SetBlockHeight(0)
 	//
 	//// reinitialize all validators
 	//app.StakingKeeper.IterateValidators(ctx, func(_ int64, val exported.ValidatorI) (stop bool) {
@@ -117,7 +118,7 @@ func (app *FBchainApp) prepForZeroHeightGenesis(ctx sdk.Context, jailWhiteList [
 	//}
 
 	// reset context height
-	//ctx = ctx.WithBlockHeight(height)
+	//ctx.SetBlockHeight(height)
 
 	/* Handle staking state. */
 

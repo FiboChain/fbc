@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/FiboChain/fbc/libs/tendermint/libs/service"
+	"github.com/FiboChain/fbc/libs/tendermint/state/indexer"
 
 	"github.com/FiboChain/fbc/libs/tendermint/types"
 )
@@ -17,14 +18,18 @@ const (
 type IndexerService struct {
 	service.BaseService
 
-	idr      TxIndexer
-	eventBus *types.EventBus
+	idr       TxIndexer
+	blockIdxr indexer.BlockIndexer
+	eventBus  *types.EventBus
+	quit      chan struct{}
 }
 
 // NewIndexerService returns a new service instance.
-func NewIndexerService(idr TxIndexer, eventBus *types.EventBus) *IndexerService {
+func NewIndexerService(idr TxIndexer, bidr indexer.BlockIndexer, eventBus *types.EventBus) *IndexerService {
 	is := &IndexerService{idr: idr, eventBus: eventBus}
+	is.blockIdxr = bidr
 	is.BaseService = *service.NewBaseService(nil, "IndexerService", is)
+	is.quit = make(chan struct{})
 	return is
 }
 
@@ -50,25 +55,38 @@ func (is *IndexerService) OnStart() error {
 
 	go func() {
 		for {
-			msg := <-blockHeadersSub.Out()
-			eventDataHeader := msg.Data().(types.EventDataNewBlockHeader)
-			height := eventDataHeader.Header.Height
-			batch := NewBatch(eventDataHeader.NumTxs)
-			for i := int64(0); i < eventDataHeader.NumTxs; i++ {
-				msg2 := <-txsSub.Out()
-				txResult := msg2.Data().(types.EventDataTx).TxResult
-				if err = batch.Add(&txResult); err != nil {
-					is.Logger.Error("Can't add tx to batch",
-						"height", height,
-						"index", txResult.Index,
-						"err", err)
+			select {
+			case msg := <-blockHeadersSub.Out():
+				eventDataHeader := msg.Data().(types.EventDataNewBlockHeader)
+				height := eventDataHeader.Header.Height
+				batch := NewBatch(eventDataHeader.NumTxs)
+				for i := int64(0); i < eventDataHeader.NumTxs; i++ {
+					msg2 := <-txsSub.Out()
+					txResult := msg2.Data().(types.EventDataTx).TxResult
+					if err = batch.Add(&txResult); err != nil {
+						is.Logger.Error("Can't add tx to batch",
+							"height", height,
+							"index", txResult.Index,
+							"err", err)
+					}
 				}
+
+				if err := is.blockIdxr.Index(eventDataHeader); err != nil {
+					is.Logger.Error("failed to index block", "height", height, "err", err)
+				} else {
+					is.Logger.Info("indexed block", "height", height)
+				}
+
+				if err = is.idr.AddBatch(batch); err != nil {
+					is.Logger.Error("Failed to index block", "height", height, "err", err)
+				} else {
+					is.Logger.Info("Indexed block", "height", height)
+				}
+			case <-blockHeadersSub.Cancelled():
+				close(is.quit)
+				return
 			}
-			if err = is.idr.AddBatch(batch); err != nil {
-				is.Logger.Error("Failed to index block", "height", height, "err", err)
-			} else {
-				is.Logger.Info("Indexed block", "height", height)
-			}
+
 		}
 	}()
 	return nil
@@ -79,4 +97,12 @@ func (is *IndexerService) OnStop() {
 	if is.eventBus.IsRunning() {
 		_ = is.eventBus.UnsubscribeAll(context.Background(), subscriber)
 	}
+}
+
+func (is *IndexerService) Wait() {
+	<-is.quit
+}
+
+func (is *IndexerService) GetBlockIndexer() indexer.BlockIndexer {
+	return is.blockIdxr
 }

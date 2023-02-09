@@ -5,7 +5,7 @@ import (
 	sdk "github.com/FiboChain/fbc/libs/cosmos-sdk/types"
 	abci "github.com/FiboChain/fbc/libs/tendermint/abci/types"
 	"github.com/FiboChain/fbc/x/common"
-
+	evmtypes "github.com/FiboChain/fbc/x/evm/types"
 	"github.com/FiboChain/fbc/x/gov/types"
 )
 
@@ -71,6 +71,12 @@ func queryProposal(ctx sdk.Context, path []string, req abci.RequestQuery, keeper
 	proposal, ok := keeper.GetProposal(ctx, params.ProposalID)
 	if !ok {
 		return nil, types.ErrUnknownProposal(params.ProposalID)
+	}
+
+	if p, ok := proposal.Content.(evmtypes.ManageContractMethodBlockedListProposal); ok {
+		p.FixShortAddr()
+		newProposal := types.WrapProposalForCosmosAPI(proposal, p)
+		proposal = newProposal
 	}
 
 	bz, err := codec.MarshalJSONIndent(keeper.cdc, proposal)
@@ -191,7 +197,18 @@ func queryProposals(ctx sdk.Context, path []string, req abci.RequestQuery, keepe
 
 	proposals := keeper.GetProposalsFiltered(ctx, params.Voter, params.Depositor, params.ProposalStatus, params.Limit)
 
-	bz, err := codec.MarshalJSONIndent(keeper.cdc, proposals)
+	newProposals := make([]types.Proposal, 0)
+	for _, proposal := range proposals {
+		if p, ok := proposal.Content.(evmtypes.ManageContractMethodBlockedListProposal); ok {
+			p.FixShortAddr()
+			newProposal := types.WrapProposalForCosmosAPI(proposal, p)
+			newProposals = append(newProposals, newProposal)
+		} else {
+			newProposals = append(newProposals, proposal)
+		}
+	}
+
+	bz, err := codec.MarshalJSONIndent(keeper.cdc, newProposals)
 	if err != nil {
 		return nil, common.ErrMarshalJSONFailed(sdk.AppendMsgToErr("could not marshal result to JSON", err.Error()))
 	}

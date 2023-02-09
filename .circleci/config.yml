@@ -36,6 +36,17 @@ jobs:
           keys:
             - go-mod-v1-{{ checksum "go.sum" }}
       - run:
+          name: run go mod tidy first
+          command: go mod tidy
+      # If there are any diffs from goimports or go mod tidy, fail.
+      - run:
+          name: Verify no changes from go mod tidy
+          command: |
+            if [ -n "$(git status --porcelain)" ]; then
+              echo "need run 'go mod tidy' before commit"
+              exit 1
+            fi
+      - run:
           name: Cache go modules
           command: make go-mod-cache
       - run:

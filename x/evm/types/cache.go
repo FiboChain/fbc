@@ -25,7 +25,10 @@ func NewCache() *Cache {
 	}
 }
 
-func (c *Cache) UpdateParams(params Params) {
+func (c *Cache) UpdateParams(params Params, isCheckTx bool) {
+	if isCheckTx {
+		return
+	}
 	c.paramsMutex.Lock()
 	defer c.paramsMutex.Unlock()
 	c.paramsCache = params
@@ -77,14 +80,17 @@ func (c *Cache) GetBlockedContractMethod(addr string) (contract *BlockedContract
 	return nil
 }
 
-func (c *Cache) UpdateBlockedContractMethod(bcl BlockedContractList) {
-	c.blockedMutex.Lock()
-	c.blockedContractMethodsCache = make(map[string]BlockedContract, 0)
-	for i, _ := range bcl {
-		c.blockedContractMethodsCache[bcl[i].Address.String()] = bcl[i]
+func (c *Cache) UpdateBlockedContractMethod(bcl BlockedContractList, isCheckTx bool) {
+	if isCheckTx {
+		return
 	}
-	c.blockedMutex.Unlock()
+	c.blockedMutex.Lock()
+	c.blockedContractMethodsCache = make(map[string]BlockedContract, len(bcl))
+	for i, _ := range bcl {
+		c.blockedContractMethodsCache[string(bcl[i].Address)] = bcl[i]
+	}
 	c.needBlockedUpdate = false
+	c.blockedMutex.Unlock()
 }
 
 func SetEvmParamsNeedUpdate() {

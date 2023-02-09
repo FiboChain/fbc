@@ -5,12 +5,12 @@ import (
 
 	"github.com/FiboChain/fbc/x/genutil/types"
 
+	"github.com/gorilla/mux"
 	"github.com/FiboChain/fbc/libs/cosmos-sdk/client/context"
 	"github.com/FiboChain/fbc/libs/cosmos-sdk/codec"
 	sdk "github.com/FiboChain/fbc/libs/cosmos-sdk/types"
 	"github.com/FiboChain/fbc/libs/cosmos-sdk/types/module"
 	abci "github.com/FiboChain/fbc/libs/tendermint/abci/types"
-	"github.com/gorilla/mux"
 	"github.com/spf13/cobra"
 )
 

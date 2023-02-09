@@ -2,9 +2,10 @@ package types
 
 import (
 	"fmt"
+	"strings"
+
 	sdk "github.com/FiboChain/fbc/libs/cosmos-sdk/types"
 	govtypes "github.com/FiboChain/fbc/x/gov/types"
-	"strings"
 )
 
 const (

@@ -1,7 +1,6 @@
 package types
 
 import (
-	"github.com/FiboChain/fbc/libs/cosmos-sdk/crypto/keys"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -50,9 +49,6 @@ func TestSetCoinType(t *testing.T) {
 	resetConfig(config)
 	require.Equal(t, sdk.CoinType, int(config.GetCoinType()))
 	require.Equal(t, sdk.FullFundraiserPath, config.GetFullFundraiserPath())
-
-	hdPath := keys.CreateHDPathEx(60, 0, 0).String()
-	t.Log(hdPath)
 
 	SetBip44CoinType(config)
 	require.Equal(t, Bip44CoinType, int(config.GetCoinType()))

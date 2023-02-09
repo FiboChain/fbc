@@ -2,8 +2,20 @@ package ante_test
 
 import (
 	"fmt"
+	"math/big"
 	"testing"
 	"time"
+
+	"github.com/FiboChain/fbc/libs/cosmos-sdk/client"
+	"github.com/FiboChain/fbc/libs/cosmos-sdk/codec"
+	types2 "github.com/FiboChain/fbc/libs/cosmos-sdk/codec/types"
+	"github.com/FiboChain/fbc/libs/cosmos-sdk/simapp/helpers"
+	ibcmsg "github.com/FiboChain/fbc/libs/cosmos-sdk/types/ibc-adapter"
+	ibc_tx "github.com/FiboChain/fbc/libs/cosmos-sdk/x/auth/ibc-tx"
+	clienttypes "github.com/FiboChain/fbc/libs/ibc-go/modules/core/02-client/types"
+	channeltypes "github.com/FiboChain/fbc/libs/ibc-go/modules/core/04-channel/types"
+	"github.com/FiboChain/fbc/libs/ibc-go/testing/mock"
+	helpers2 "github.com/FiboChain/fbc/libs/ibc-go/testing/simapp/helpers"
 
 	"github.com/stretchr/testify/suite"
 
@@ -27,7 +39,7 @@ type AnteTestSuite struct {
 	suite.Suite
 
 	ctx         sdk.Context
-	app         *app.FBchainApp
+	app         *app.FBChainApp
 	anteHandler sdk.AnteHandler
 }
 
@@ -41,7 +53,7 @@ func (suite *AnteTestSuite) SetupTest() {
 	suite.ctx = suite.app.BaseApp.NewContext(checkTx, abci.Header{Height: 1, ChainID: chainId, Time: time.Now().UTC()})
 	suite.app.EvmKeeper.SetParams(suite.ctx, evmtypes.DefaultParams())
 
-	suite.anteHandler = ante.NewAnteHandler(suite.app.AccountKeeper, suite.app.EvmKeeper, suite.app.SupplyKeeper, nil)
+	suite.anteHandler = ante.NewAnteHandler(suite.app.AccountKeeper, suite.app.EvmKeeper, suite.app.SupplyKeeper, nil, suite.app.WasmHandler, suite.app.IBCKeeper)
 
 	err := fbchain.SetChainId(chainId)
 	suite.Nil(err)
@@ -112,4 +124,34 @@ func newTestEthTx(ctx sdk.Context, msg *evmtypes.MsgEthereumTx, priv tmcrypto.Pr
 	}
 
 	return msg, nil
+}
+
+func newTxConfig() client.TxConfig {
+	interfaceRegistry := types2.NewInterfaceRegistry()
+	marshaler := codec.NewProtoCodec(interfaceRegistry)
+	return ibc_tx.NewTxConfig(marshaler, ibc_tx.DefaultSignModes)
+}
+
+func mockIbcTx(accNum, seqNum []uint64, priv tmcrypto.PrivKey, chainId string, addr sdk.AccAddress) *sdk.Tx {
+	txConfig := newTxConfig()
+	packet := channeltypes.NewPacket([]byte(mock.MockPacketData), 1,
+		"transfer", "channel-0",
+		"transfer", "channel-1",
+		clienttypes.NewHeight(1, 0), 0)
+	msgs := []ibcmsg.Msg{channeltypes.NewMsgRecvPacket(packet, []byte("proof"), clienttypes.NewHeight(0, 1), addr.String())}
+	ibcTx, err := helpers2.GenTx(
+		txConfig,
+		msgs,
+		sdk.CoinAdapters{sdk.NewCoinAdapter(sdk.DefaultIbcWei, sdk.NewIntFromBigInt(big.NewInt(0)))},
+		helpers.DefaultGenTxGas,
+		chainId,
+		accNum,
+		seqNum,
+		1,
+		priv,
+	)
+	if err != nil {
+		return nil
+	}
+	return &ibcTx
 }

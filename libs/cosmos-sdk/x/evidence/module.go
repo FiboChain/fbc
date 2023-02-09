@@ -12,8 +12,8 @@ import (
 	"github.com/FiboChain/fbc/libs/cosmos-sdk/x/evidence/client/cli"
 	"github.com/FiboChain/fbc/libs/cosmos-sdk/x/evidence/client/rest"
 
-	abci "github.com/FiboChain/fbc/libs/tendermint/abci/types"
 	"github.com/gorilla/mux"
+	abci "github.com/FiboChain/fbc/libs/tendermint/abci/types"
 	"github.com/spf13/cobra"
 )
 

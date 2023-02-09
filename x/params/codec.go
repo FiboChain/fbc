@@ -16,5 +16,5 @@ func init() {
 
 // RegisterCodec registers all necessary param module types with a given codec.
 func RegisterCodec(cdc *codec.Codec) {
-	cdc.RegisterConcrete(types.ParameterChangeProposal{}, "fbchain/params/ParameterChangeProposal", nil)
+	cdc.RegisterConcrete(types.ParameterChangeProposal{}, "fibochain/params/ParameterChangeProposal", nil)
 }

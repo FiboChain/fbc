@@ -6,6 +6,10 @@ import (
 	"fmt"
 	"strings"
 
+	sdkerrors "github.com/FiboChain/fbc/libs/cosmos-sdk/types/errors"
+
+	"github.com/FiboChain/fbc/libs/tendermint/global"
+
 	"github.com/FiboChain/fbc/libs/tendermint/crypto"
 	ce "github.com/FiboChain/fbc/libs/tendermint/crypto/encoding"
 	tmrand "github.com/FiboChain/fbc/libs/tendermint/libs/rand"
@@ -88,6 +92,10 @@ func ValidatorListString(vals []*Validator) string {
 // as its redundant with the pubkey. This also excludes ProposerPriority
 // which changes every round.
 func (v *Validator) Bytes() []byte {
+	panic("call HeightBytes")
+}
+
+func (v *Validator) OriginBytes() []byte {
 	return cdcEncode(struct {
 		PubKey      crypto.PubKey
 		VotingPower int64
@@ -124,11 +132,18 @@ func ValidatorFromProto(vp *tmproto.Validator) (*Validator, error) {
 	if vp == nil {
 		return nil, errors.New("nil validator")
 	}
-
-	pk, err := ce.PubKeyFromProto(&vp.PubKey)
+	pk, pubKeyType, err := ce.PubKeyFromProto(&vp.PubKey)
 	if err != nil {
 		return nil, err
 	}
+
+	if pubKeyType == ce.Secp256k1 {
+		gh := global.GetGlobalHeight()
+		if !HigherThanVenus2(gh) {
+			return nil, sdkerrors.Wrap(sdkerrors.ErrTxDecode, "not support secp256k1 pubkey before the veneus2 height")
+		}
+	}
+
 	v := new(Validator)
 	v.Address = vp.GetAddress()
 	v.PubKey = pk

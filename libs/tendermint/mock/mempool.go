@@ -3,12 +3,12 @@ package mock
 import (
 	"crypto/sha256"
 	"fmt"
+	"github.com/FiboChain/fbc/libs/system/trace"
 
 	abci "github.com/FiboChain/fbc/libs/tendermint/abci/types"
 	cfg "github.com/FiboChain/fbc/libs/tendermint/config"
 	"github.com/FiboChain/fbc/libs/tendermint/libs/clist"
 	mempl "github.com/FiboChain/fbc/libs/tendermint/mempool"
-	"github.com/FiboChain/fbc/libs/tendermint/trace"
 	"github.com/FiboChain/fbc/libs/tendermint/types"
 )
 
@@ -74,4 +74,14 @@ func (Mempool) SetAccountRetriever(_ mempl.AccountRetriever) {
 
 func (Mempool) SetTxInfoParser(_ mempl.TxInfoParser) {
 
+}
+
+func (Mempool) GetTxSimulateGas(txHash string) int64 { return 0 }
+
+func (Mempool) SetEnableDeleteMinGPTx(enable bool) {
+
+}
+
+func (Mempool) GetEnableDeleteMinGPTx() bool {
+	return false
 }

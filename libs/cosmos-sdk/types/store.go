@@ -2,6 +2,7 @@ package types
 
 import (
 	tmkv "github.com/FiboChain/fbc/libs/tendermint/libs/kv"
+	"sync"
 
 	"github.com/FiboChain/fbc/libs/cosmos-sdk/codec"
 	"github.com/FiboChain/fbc/libs/cosmos-sdk/store/types"
@@ -76,6 +77,8 @@ const (
 	StoreTypeDB        = types.StoreTypeDB
 	StoreTypeIAVL      = types.StoreTypeIAVL
 	StoreTypeTransient = types.StoreTypeTransient
+	StoreTypeMPT       = types.StoreTypeMPT
+	StoreTypeMemory    = types.StoreTypeMemory
 )
 
 // nolint - reexport
@@ -83,6 +86,7 @@ type (
 	StoreKey          = types.StoreKey
 	KVStoreKey        = types.KVStoreKey
 	TransientStoreKey = types.TransientStoreKey
+	MemoryStoreKey    = types.MemoryStoreKey
 )
 
 // NewKVStoreKey returns a new pointer to a KVStoreKey.
@@ -98,6 +102,17 @@ func NewKVStoreKeys(names ...string) map[string]*KVStoreKey {
 	for _, name := range names {
 		keys[name] = NewKVStoreKey(name)
 	}
+	return keys
+}
+
+// NewMemoryStoreKeys constructs a new map matching store key names to their
+// respective MemoryStoreKey references.
+func NewMemoryStoreKeys(names ...string) map[string]*MemoryStoreKey {
+	keys := make(map[string]*MemoryStoreKey)
+	for _, name := range names {
+		keys[name] = types.NewMemoryStoreKey(name)
+	}
+
 	return keys
 }
 
@@ -148,6 +163,8 @@ type (
 	Gas       = types.Gas
 	GasMeter  = types.GasMeter
 	GasConfig = types.GasConfig
+
+	ReusableGasMeter = types.ReusableGasMeter
 )
 
 // nolint - reexport
@@ -164,4 +181,22 @@ type (
 // nolint - reexport
 func NewInfiniteGasMeter() GasMeter {
 	return types.NewInfiniteGasMeter()
+}
+
+var resuableGasMeterPool = &sync.Pool{
+	New: func() interface{} {
+		return types.NewReusableInfiniteGasMeter()
+	},
+}
+
+// GetReusableInfiniteGasMeter returns a ReusableGasMeter from the pool.
+// you must call ReturnInfiniteGasMeter after you are done with the meter.
+func GetReusableInfiniteGasMeter() ReusableGasMeter {
+	gm := resuableGasMeterPool.Get().(ReusableGasMeter)
+	gm.Reset()
+	return gm
+}
+
+func ReturnInfiniteGasMeter(gm ReusableGasMeter) {
+	resuableGasMeterPool.Put(gm)
 }

@@ -4,18 +4,16 @@ import (
 	"encoding/json"
 
 	"github.com/gorilla/mux"
-	"github.com/spf13/cobra"
-
-	abci "github.com/FiboChain/fbc/libs/tendermint/abci/types"
-
+	"github.com/FiboChain/fbc/libs/cosmos-sdk/baseapp"
 	"github.com/FiboChain/fbc/libs/cosmos-sdk/client/context"
 	"github.com/FiboChain/fbc/libs/cosmos-sdk/codec"
 	sdk "github.com/FiboChain/fbc/libs/cosmos-sdk/types"
 	"github.com/FiboChain/fbc/libs/cosmos-sdk/types/module"
-
+	abci "github.com/FiboChain/fbc/libs/tendermint/abci/types"
 	"github.com/FiboChain/fbc/x/evm/client/cli"
 	"github.com/FiboChain/fbc/x/evm/keeper"
 	"github.com/FiboChain/fbc/x/evm/types"
+	"github.com/spf13/cobra"
 )
 
 var _ module.AppModuleBasic = AppModuleBasic{}
@@ -119,6 +117,7 @@ func (am AppModule) BeginBlock(ctx sdk.Context, req abci.RequestBeginBlock) {
 
 // EndBlock function for module at end of block
 func (am AppModule) EndBlock(ctx sdk.Context, req abci.RequestEndBlock) []abci.ValidatorUpdate {
+	baseapp.InstanceOfHistoryGasUsedRecordDB().FlushHgu()
 	return am.keeper.EndBlock(ctx, req)
 }
 

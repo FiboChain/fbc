@@ -6,6 +6,9 @@ import (
 	"fmt"
 	"path/filepath"
 
+	appconfig "github.com/FiboChain/fbc/app/config"
+	"github.com/FiboChain/fbc/app/gasprice"
+	apptypes "github.com/FiboChain/fbc/app/types"
 	"github.com/FiboChain/fbc/libs/tendermint/types"
 
 	abci "github.com/FiboChain/fbc/libs/tendermint/abci/types"
@@ -20,7 +23,7 @@ import (
 // similar to a real app. Make sure rootDir is empty before running the test,
 // in order to guarantee consistent results
 func NewApp(rootDir string, logger log.Logger) (abci.Application, error) {
-	db, err := sdk.NewLevelDB("mock", filepath.Join(rootDir, "data"))
+	db, err := sdk.NewDB("mock", filepath.Join(rootDir, "data"))
 	if err != nil {
 		return nil, err
 	}
@@ -34,6 +37,9 @@ func NewApp(rootDir string, logger log.Logger) (abci.Application, error) {
 	// Set mounts for BaseApp's MultiStore.
 	baseApp.MountStores(capKeyMainStore)
 
+	gpoConfig := gasprice.NewGPOConfig(80, 5)
+	gpo := gasprice.NewOracle(gpoConfig)
+	baseApp.SetUpdateGPOHandler(updateGPOHandler(gpo))
 	baseApp.SetInitChainer(InitChainer(capKeyMainStore))
 
 	// Set a handler Route.
@@ -47,11 +53,21 @@ func NewApp(rootDir string, logger log.Logger) (abci.Application, error) {
 	return baseApp, nil
 }
 
+func updateGPOHandler(gpo *gasprice.Oracle) sdk.UpdateGPOHandler {
+	return func(dynamicGpInfos []sdk.DynamicGasInfo) {
+		if appconfig.GetFecConfig().GetDynamicGpMode() != apptypes.MinimalGpMode {
+			for _, dgi := range dynamicGpInfos {
+				gpo.CurrentBlockGPs.Update(dgi.GetGP(), dgi.GetGU())
+			}
+		}
+	}
+}
+
 // KVStoreHandler is a simple handler that takes kvstoreTx and writes
 // them to the db
 func KVStoreHandler(storeKey sdk.StoreKey) sdk.Handler {
 	return func(ctx sdk.Context, msg sdk.Msg) (*sdk.Result, error) {
-		dTx, ok := msg.(kvstoreTx)
+		dTx, ok := msg.(*kvstoreTx)
 		if !ok {
 			return nil, errors.New("KVStoreHandler should only receive kvstoreTx")
 		}

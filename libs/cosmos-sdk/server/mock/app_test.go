@@ -3,6 +3,7 @@ package mock
 import (
 	"testing"
 
+	appconfig "github.com/FiboChain/fbc/app/config"
 	"github.com/FiboChain/fbc/libs/tendermint/types"
 
 	"github.com/stretchr/testify/require"
@@ -44,6 +45,7 @@ func TestInitApp(t *testing.T) {
 
 // TextDeliverTx ensures we can write a tx
 func TestDeliverTx(t *testing.T) {
+	appconfig.GetFecConfig().SetDynamicGpMode(0)
 	// set up an app
 	app, closer, err := SetupApp()
 	// closer may need to be run, even when error in later stage

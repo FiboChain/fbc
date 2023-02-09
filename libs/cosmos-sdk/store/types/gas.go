@@ -1,6 +1,8 @@
 package types
 
-import "math"
+import (
+	"math"
+)
 
 // Gas consumption descriptors.
 const (
@@ -36,6 +38,11 @@ type GasMeter interface {
 	ConsumeGas(amount Gas, descriptor string)
 	IsPastLimit() bool
 	IsOutOfGas() bool
+}
+
+type ReusableGasMeter interface {
+	GasMeter
+	Reset()
 }
 
 type basicGasMeter struct {
@@ -87,7 +94,6 @@ func (g *basicGasMeter) ConsumeGas(amount Gas, descriptor string) {
 	if g.consumed > g.limit {
 		panic(ErrorOutOfGas{descriptor})
 	}
-
 }
 
 func (g *basicGasMeter) IsPastLimit() bool {
@@ -105,6 +111,18 @@ type infiniteGasMeter struct {
 // NewInfiniteGasMeter returns a reference to a new infiniteGasMeter.
 func NewInfiniteGasMeter() GasMeter {
 	return &infiniteGasMeter{
+		consumed: 0,
+	}
+}
+
+func NewReusableInfiniteGasMeter() ReusableGasMeter {
+	return &infiniteGasMeter{
+		consumed: 0,
+	}
+}
+
+func (g *infiniteGasMeter) Reset() {
+	*g = infiniteGasMeter{
 		consumed: 0,
 	}
 }

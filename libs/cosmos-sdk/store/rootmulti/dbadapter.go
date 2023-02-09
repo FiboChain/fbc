@@ -38,6 +38,10 @@ func (cdsa commitDBStoreAdapter) LastCommitID() types.CommitID {
 	}
 }
 
+func (cdsa commitDBStoreAdapter) LastCommitVersion() (v int64) {
+	return -1
+}
+
 func (cdsa commitDBStoreAdapter) SetPruning(_ types.PruningOptions) {}
 
 func (cdsa commitDBStoreAdapter) GetDBReadTime() int   { return 0 }
@@ -52,3 +56,4 @@ func (cdsa commitDBStoreAdapter) GetFlatKVReadTime() int   { return 0 }
 func (cdsa commitDBStoreAdapter) GetFlatKVWriteTime() int  { return 0 }
 func (cdsa commitDBStoreAdapter) GetFlatKVReadCount() int  { return 0 }
 func (cdsa commitDBStoreAdapter) GetFlatKVWriteCount() int { return 0 }
+func (cdsa commitDBStoreAdapter) SetUpgradeVersion(int64)  {}

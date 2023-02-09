@@ -4,7 +4,9 @@ package bank
 
 import (
 	"github.com/FiboChain/fbc/libs/cosmos-sdk/x/bank/internal/keeper"
+	"github.com/FiboChain/fbc/libs/cosmos-sdk/x/bank/internal/keeperadapter"
 	"github.com/FiboChain/fbc/libs/cosmos-sdk/x/bank/internal/types"
+	"github.com/FiboChain/fbc/libs/cosmos-sdk/x/bank/internal/typesadapter"
 )
 
 const (
@@ -25,6 +27,7 @@ var (
 	RegisterInvariants          = keeper.RegisterInvariants
 	NonnegativeBalanceInvariant = keeper.NonnegativeBalanceInvariant
 	NewBaseKeeper               = keeper.NewBaseKeeper
+	NewBaseKeeperWithMarshal    = keeper.NewBaseKeeperWithMarshal
 	NewBaseSendKeeper           = keeper.NewBaseSendKeeper
 	NewBaseViewKeeper           = keeper.NewBaseViewKeeper
 	NewQuerier                  = keeper.NewQuerier
@@ -45,6 +48,12 @@ var (
 	NewQueryBalanceParams       = types.NewQueryBalanceParams
 	ModuleCdc                   = types.ModuleCdc
 	ParamStoreKeySendEnabled    = types.ParamStoreKeySendEnabled
+	RegisterBankMsgServer       = typesadapter.RegisterMsgServer
+	NewMsgServerImpl            = keeperadapter.NewMsgServerImpl
+	RegisterQueryServer         = typesadapter.RegisterQueryServer
+	NewBankKeeperAdapter        = keeperadapter.NewBankKeeperAdapter
+	NewBankQueryServer          = keeperadapter.NewBankQueryServer
+	RegisterInterface           = typesadapter.RegisterInterface
 )
 
 type (
@@ -56,8 +65,37 @@ type (
 	BaseViewKeeper     = keeper.BaseViewKeeper
 	GenesisState       = types.GenesisState
 	MsgSend            = types.MsgSend
+	AdapterMsgSend     = typesadapter.MsgSend
 	MsgMultiSend       = types.MsgMultiSend
 	Input              = types.Input
 	Output             = types.Output
 	QueryBalanceParams = types.QueryBalanceParams
+	BankKeeperAdapter  = keeperadapter.BankKeeperAdapter
+	SupplyKeeper       = keeperadapter.SupplyKeeper
+)
+
+//adapter
+type (
+	MsgMultiSendAdapter                = typesadapter.MsgMultiSend
+	MsgSendAdapter                     = typesadapter.MsgSend
+	MsgSendResponseAdapter             = typesadapter.MsgSendResponse
+	QueryServerAdapter                 = typesadapter.QueryServer
+	MsgMultiSendResponseAdapter        = typesadapter.MsgMultiSendResponse
+	QueryBalanceRequestAdapter         = typesadapter.QueryBalanceRequest
+	QueryBalanceResponseAdapter        = typesadapter.QueryBalanceResponse
+	QueryAllBalancesRequestAdapter     = typesadapter.QueryAllBalancesRequest
+	QueryAllBalancesResponseAdapter    = typesadapter.QueryAllBalancesResponse
+	QueryTotalSupplyRequestAdapter     = typesadapter.QueryTotalSupplyRequest
+	QueryTotalSupplyResponseAdapter    = typesadapter.QueryTotalSupplyResponse
+	QuerySupplyOfRequestAdapter        = typesadapter.QuerySupplyOfRequest
+	QuerySupplyOfResponseAdapter       = typesadapter.QuerySupplyOfResponse
+	QueryParamsRequestAdapter          = typesadapter.QueryParamsRequest
+	QueryParamsResponseAdapter         = typesadapter.QueryParamsResponse
+	QueryDenomsMetadataRequestAdapter  = typesadapter.QueryDenomsMetadataRequest
+	QueryDenomsMetadataResponseAdapter = typesadapter.QueryDenomsMetadataResponse
+	QueryDenomMetadataRequestAdapter   = typesadapter.QueryDenomMetadataRequest
+	QueryDenomMetadataResponseAdapter  = typesadapter.QueryDenomMetadataResponse
+	ParamsAdapter                      = typesadapter.Params
+
+	MetadataAdapter = typesadapter.Metadata
 )

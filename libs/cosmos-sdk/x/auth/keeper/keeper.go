@@ -3,15 +3,16 @@ package keeper
 import (
 	"fmt"
 
-	"github.com/FiboChain/fbc/libs/tendermint/crypto"
-	"github.com/FiboChain/fbc/libs/tendermint/libs/log"
-
 	"github.com/FiboChain/fbc/libs/cosmos-sdk/codec"
+	"github.com/FiboChain/fbc/libs/cosmos-sdk/store/mpt"
 	sdk "github.com/FiboChain/fbc/libs/cosmos-sdk/types"
 	sdkerrors "github.com/FiboChain/fbc/libs/cosmos-sdk/types/errors"
 	"github.com/FiboChain/fbc/libs/cosmos-sdk/x/auth/exported"
 	"github.com/FiboChain/fbc/libs/cosmos-sdk/x/auth/types"
 	"github.com/FiboChain/fbc/libs/cosmos-sdk/x/params/subspace"
+	"github.com/FiboChain/fbc/libs/tendermint/crypto"
+	"github.com/FiboChain/fbc/libs/tendermint/libs/log"
+	tmtypes "github.com/FiboChain/fbc/libs/tendermint/types"
 )
 
 // AccountKeeper encodes/decodes accounts using the go-amino (binary)
@@ -19,6 +20,8 @@ import (
 type AccountKeeper struct {
 	// The (unexposed) key used to access the store from the Context.
 	key sdk.StoreKey
+
+	mptKey sdk.StoreKey
 
 	// The prototypical Account constructor.
 	proto func() exported.Account
@@ -35,11 +38,12 @@ type AccountKeeper struct {
 // (binary) encode and decode concrete sdk.Accounts.
 // nolint
 func NewAccountKeeper(
-	cdc *codec.Codec, key sdk.StoreKey, paramstore subspace.Subspace, proto func() exported.Account,
+	cdc *codec.Codec, key, keyMpt sdk.StoreKey, paramstore subspace.Subspace, proto func() exported.Account,
 ) AccountKeeper {
 
 	return AccountKeeper{
 		key:           key,
+		mptKey:        keyMpt,
 		proto:         proto,
 		cdc:           cdc,
 		paramSubspace: paramstore.WithKeyTable(types.ParamKeyTable()),
@@ -73,7 +77,12 @@ func (ak AccountKeeper) GetSequence(ctx sdk.Context, addr sdk.AccAddress) (uint6
 // If the global account number is not set, it initializes it with value 0.
 func (ak AccountKeeper) GetNextAccountNumber(ctx sdk.Context) uint64 {
 	var accNumber uint64
-	store := ctx.KVStore(ak.key)
+	var store sdk.KVStore
+	if tmtypes.HigherThanMars(ctx.BlockHeight()) {
+		store = ctx.KVStore(ak.mptKey)
+	} else {
+		store = ctx.KVStore(ak.key)
+	}
 	bz := store.Get(types.GlobalAccountNumberKey)
 	if bz == nil {
 		// initialize the account numbers
@@ -87,6 +96,9 @@ func (ak AccountKeeper) GetNextAccountNumber(ctx sdk.Context) uint64 {
 
 	bz = ak.cdc.MustMarshalBinaryLengthPrefixed(accNumber + 1)
 	store.Set(types.GlobalAccountNumberKey, bz)
+	if !tmtypes.HigherThanMars(ctx.BlockHeight()) && mpt.TrieWriteAhead {
+		ctx.MultiStore().GetKVStore(ak.mptKey).Set(types.GlobalAccountNumberKey, bz)
+	}
 
 	return accNumber
 }
@@ -94,15 +106,15 @@ func (ak AccountKeeper) GetNextAccountNumber(ctx sdk.Context) uint64 {
 // -----------------------------------------------------------------------------
 // Misc.
 
-func (ak AccountKeeper) decodeAccount(bz []byte) (acc exported.Account) {
-	val, err := ak.cdc.UnmarshalBinaryBareWithRegisteredUnmarshaller(bz, &acc)
+func (ak AccountKeeper) decodeAccount(bz []byte) exported.Account {
+	val, err := ak.cdc.UnmarshalBinaryBareWithRegisteredUnmarshaller(bz, (*exported.Account)(nil))
 	if err == nil {
-		acc = val.(exported.Account)
-		return
+		return val.(exported.Account)
 	}
+	var acc exported.Account
 	err = ak.cdc.UnmarshalBinaryBare(bz, &acc)
 	if err != nil {
 		panic(err)
 	}
-	return
+	return acc
 }

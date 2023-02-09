@@ -1,6 +1,9 @@
 package mint_test
 
 import (
+	"testing"
+	"time"
+
 	"github.com/FiboChain/fbc/app"
 	"github.com/FiboChain/fbc/libs/cosmos-sdk/codec"
 	sdk "github.com/FiboChain/fbc/libs/cosmos-sdk/types"
@@ -9,8 +12,6 @@ import (
 	abci "github.com/FiboChain/fbc/libs/tendermint/abci/types"
 	govtypes "github.com/FiboChain/fbc/x/gov/types"
 	"github.com/stretchr/testify/suite"
-	"testing"
-	"time"
 )
 
 var (
@@ -28,7 +29,7 @@ type MintTestSuite struct {
 	ctx        sdk.Context
 	govHandler govtypes.Handler
 	querier    sdk.Querier
-	app        *app.FBchainApp
+	app        *app.FBChainApp
 	codec      *codec.Codec
 }
 

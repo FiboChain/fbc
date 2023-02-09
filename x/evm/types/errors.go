@@ -62,6 +62,9 @@ var (
 	ErrorHexData = "HexData"
 
 	ErrorContractMethodBlockedIsNotExist = errors.New("it's not exist in contract method blocked list")
+
+	// ErrGUFactor returns an error if gu_factor is negative
+	ErrGUFactor = sdkerrors.Register(ModuleName, 24, "gu_factor should non-negative")
 )
 
 const (
@@ -109,6 +112,30 @@ func ErrBlockedContractMethodIsNotExist(address sdk.Address, err error) sdk.Enve
 			fmt.Sprintf("Delete contract(%s) method failed: %s", address, err.Error()),
 		),
 	}
+}
+
+func ErrSysContractAddressIsNotExist(err error) sdk.EnvelopedErr {
+	return sdk.EnvelopedErr{
+		Err: sdkerrors.New(
+			DefaultParamspace,
+			21,
+			fmt.Sprintf("failed. the system contract address is not exist: %s", err.Error()),
+		),
+	}
+}
+
+func ErrNotContracAddress(err error) sdk.EnvelopedErr {
+	return sdk.EnvelopedErr{
+		Err: sdkerrors.New(
+			DefaultParamspace,
+			22,
+			fmt.Sprintf("failed. the address is not a contract address: %s", err.Error()),
+		),
+	}
+}
+
+func ErrCodeProposerMustBeValidator() sdk.Error {
+	return sdkerrors.New(DefaultCodespace, 23, "the proposal of proposer must be validator")
 }
 
 type ErrContractBlockedVerify struct {

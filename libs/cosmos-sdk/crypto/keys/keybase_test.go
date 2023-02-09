@@ -429,9 +429,6 @@ func TestSeedPhrase(t *testing.T) {
 	params := *hd.NewFundraiserParams(0, sdk.CoinType, 0)
 	hdPath := params.String()
 	newInfo, err := cstore.CreateAccount(n2, mnemonic, DefaultBIP39Passphrase, p2, hdPath, Secp256k1)
-
-	t.Log(sdk.AccAddress(newInfo.GetPubKey().Address()).Bech32String("fb"), mnemonic)
-
 	require.NoError(t, err)
 	require.Equal(t, n2, newInfo.GetName())
 	require.Equal(t, info.GetPubKey().Address(), newInfo.GetPubKey().Address())

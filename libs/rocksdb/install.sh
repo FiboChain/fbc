@@ -1,7 +1,7 @@
 #!/bin/sh
 #set -e
 #set -x
-VERSION_NUM=6.15.5
+VERSION_NUM=6.27.3
 VERSION=v$VERSION_NUM
 while [ $# -gt 0 ]; do
 	case "$1" in
@@ -50,17 +50,21 @@ get_distribution() {
 install_linux() {
   $sh_c "git clone https://github.com/facebook/rocksdb.git"
   $sh_c "cd rocksdb && git checkout ${VERSION}"
+  $sh_c "cd rocksdb && make clean"
+  $sh_c "cd rocksdb && make uninstall"
+  $sh_c "cd rocksdb && make clean PREFIX=/usr LIBDIR=/usr/lib"
   $sh_c "cd rocksdb && make uninstall PREFIX=/usr LIBDIR=/usr/lib"
-  $sh_c "cd rocksdb && make shared_lib PREFIX=/usr LIBDIR=/usr/lib"
+  $sh_c "cd rocksdb && make -j${num_proc} DISABLE_JEMALLOC=1 shared_lib PREFIX=/usr LIBDIR=/usr/lib"
   $sh_c "cd rocksdb && make install-shared PREFIX=/usr LIBDIR=/usr/lib"
   $sh_c "ldconfig"
 }
 
 install_macos(){
   $sh_c "git clone https://github.com/facebook/rocksdb.git"
-  $sh_c "cd rocksdb && git checkout ${VERSION} && git apply --reject ../libs/rocksdb/arm64_crc.patch"
-  $sh_c "cd rocksdb && make uninstall"
-  $sh_c "cd rocksdb && make shared_lib"
+  $sh_c "cd rocksdb && git checkout ${VERSION}"
+  $sh_c "cd rocksdb && make clean"
+  $sh_c "cd rocksdb && make uninstall DEBUG_LEVEL=0"
+  $sh_c "cd rocksdb && make -j${num_proc} shared_lib EXTRA_CXXFLAGS='-Wno-deprecated-copy -Wno-unused-but-set-variable'"
   $sh_c "cd rocksdb && make install-shared"
 }
 
@@ -88,18 +92,21 @@ do_install() {
 	lsb_dist=$( get_distribution )
 	lsb_dist="$(echo "$lsb_dist" | tr '[:upper:]' '[:lower:]')"
 
+  num_proc=32
 	# Run setup for each distro accordingly
 	case "$lsb_dist" in
 		ubuntu)
 			pre_reqs="git make libsnappy-dev liblz4-dev"
       $sh_c 'apt-get update -qq >/dev/null'
       $sh_c "apt-get install -y -qq $pre_reqs >/dev/null"
+      num_proc=$( grep -c ^processor /proc/cpuinfo )
       install_linux
 			exit 0
 			;;
 		centos)
 		  pre_reqs="git make snappy snappy-devel lz4-devel yum-utils"
       $sh_c "yum install -y -q $pre_reqs"
+      num_proc=$( grep -c ^processor /proc/cpuinfo )
       install_linux
 			exit 0
 			;;
@@ -109,6 +116,7 @@ do_install() {
 				  pre_reqs="git make"
           $sh_c "xcode-select --install"
           $sh_c "brew install $pre_reqs"
+          num_proc=$( sysctl -n hw.ncpu )
           install_macos
           exit 0
 				fi

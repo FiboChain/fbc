@@ -188,9 +188,9 @@ $ %s query farm params
 func GetCmdQueryWhitelist(storeName string, cdc *codec.Codec) *cobra.Command {
 	return &cobra.Command{
 		Use:   "whitelist",
-		Short: "query the whitelist of pools to farm fibo",
+		Short: "query the whitelist of pools to farm okt",
 		Long: strings.TrimSpace(
-			fmt.Sprintf(`Query the current whitelist of pools which are approved to farm fibo.
+			fmt.Sprintf(`Query the current whitelist of pools which are approved to farm okt.
 
 Example:
 $ %s query farm whitelist

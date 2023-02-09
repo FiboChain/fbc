@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"github.com/FiboChain/fbc/libs/tendermint/global"
 	"log"
 	"net/http"
 	_ "net/http/pprof"
@@ -12,15 +11,23 @@ import (
 	"runtime/pprof"
 	"time"
 
-	tcmd "github.com/FiboChain/fbc/libs/tendermint/cmd/tendermint/commands"
+	fibochain "github.com/FiboChain/fbc/app/types"
+	evmtypes "github.com/FiboChain/fbc/x/evm/types"
+	"github.com/FiboChain/fbc/x/evm/watcher"
 
 	"github.com/FiboChain/fbc/app/config"
-	fbchain "github.com/FiboChain/fbc/app/types"
-
+	"github.com/FiboChain/fbc/app/utils/appstatus"
+	"github.com/FiboChain/fbc/app/utils/sanity"
 	"github.com/FiboChain/fbc/libs/cosmos-sdk/baseapp"
+	"github.com/FiboChain/fbc/libs/cosmos-sdk/client/lcd"
+	"github.com/FiboChain/fbc/libs/cosmos-sdk/codec"
 	"github.com/FiboChain/fbc/libs/cosmos-sdk/server"
 	sdk "github.com/FiboChain/fbc/libs/cosmos-sdk/types"
+	"github.com/FiboChain/fbc/libs/iavl"
+	"github.com/FiboChain/fbc/libs/system/trace"
 	abci "github.com/FiboChain/fbc/libs/tendermint/abci/types"
+	tcmd "github.com/FiboChain/fbc/libs/tendermint/cmd/tendermint/commands"
+	"github.com/FiboChain/fbc/libs/tendermint/global"
 	"github.com/FiboChain/fbc/libs/tendermint/mock"
 	"github.com/FiboChain/fbc/libs/tendermint/node"
 	"github.com/FiboChain/fbc/libs/tendermint/proxy"
@@ -28,6 +35,7 @@ import (
 	"github.com/FiboChain/fbc/libs/tendermint/store"
 	"github.com/FiboChain/fbc/libs/tendermint/types"
 	dbm "github.com/FiboChain/fbc/libs/tm-db"
+	"github.com/gogo/protobuf/jsonpb"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 )
@@ -41,6 +49,7 @@ const (
 	pprofAddrFlag       = "pprof_addr"
 	runWithPprofFlag    = "gen_pprof"
 	runWithPprofMemFlag = "gen_pprof_mem"
+	FlagEnableRest      = "rest"
 
 	saveBlock = "save_block"
 
@@ -48,12 +57,21 @@ const (
 	defaultPprofFilePerm = 0644
 )
 
-func replayCmd(ctx *server.Context, registerAppFlagFn func(cmd *cobra.Command)) *cobra.Command {
+func replayCmd(ctx *server.Context, registerAppFlagFn func(cmd *cobra.Command),
+	cdc *codec.CodecProxy, appCreator server.AppCreator, registry jsonpb.AnyResolver,
+	registerRoutesFn func(restServer *lcd.RestServer)) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "replay",
 		Short: "Replay blocks from local db",
 		PreRunE: func(cmd *cobra.Command, args []string) error {
 			// set external package flags
+			log.Println("--------- replay preRun ---------")
+			err := sanity.CheckStart()
+			if err != nil {
+				fmt.Println(err)
+				return err
+			}
+			iavl.SetEnableFastStorage(appstatus.IsFastStorageStrategy())
 			server.SetExternalPackageValue(cmd)
 			types.InitSignatureCache()
 			return nil
@@ -67,10 +85,23 @@ func replayCmd(ctx *server.Context, registerAppFlagFn func(cmd *cobra.Command)) 
 					fmt.Println(err)
 				}
 			}()
-
 			dataDir := viper.GetString(replayedBlockDir)
-			replayBlock(ctx, dataDir)
-			log.Println("--------- replay success ---------")
+
+			var node *node.Node
+			if viper.GetBool(FlagEnableRest) {
+				var err error
+				log.Println("--------- StartRestWithNode ---------")
+				node, err = server.StartRestWithNode(ctx, cdc, dataDir, registry, appCreator, registerRoutesFn)
+				if err != nil {
+					fmt.Println(err)
+					return
+				}
+
+			}
+
+			ts := time.Now()
+			replayBlock(ctx, dataDir, node)
+			log.Println("--------- replay success ---------", "Time Cost", time.Now().Sub(ts).Seconds())
 		},
 		PostRun: func(cmd *cobra.Command, args []string) {
 			if viper.GetBool(runWithPprofMemFlag) {
@@ -94,10 +125,17 @@ func replayCmd(ctx *server.Context, registerAppFlagFn func(cmd *cobra.Command)) 
 }
 
 // replayBlock replays blocks from db, if something goes wrong, it will panic with error message.
-func replayBlock(ctx *server.Context, originDataDir string) {
+func replayBlock(ctx *server.Context, originDataDir string, tmNode *node.Node) {
 	config.RegisterDynamicConfig(ctx.Logger.With("module", "config"))
-	proxyApp, err := createProxyApp(ctx)
-	panicError(err)
+
+	var proxyApp proxy.AppConns
+	if tmNode != nil {
+		proxyApp = tmNode.ProxyApp()
+	} else {
+		var err error
+		proxyApp, err = createProxyApp(ctx)
+		panicError(err)
+	}
 
 	res, err := proxyApp.Query().InfoSync(proxy.RequestInfo)
 	panicError(err)
@@ -108,7 +146,12 @@ func replayBlock(ctx *server.Context, originDataDir string) {
 
 	rootDir := ctx.Config.RootDir
 	dataDir := filepath.Join(rootDir, "data")
-	stateStoreDB, err := openDB(stateDB, dataDir)
+	var stateStoreDB dbm.DB
+	if tmNode != nil {
+		stateStoreDB = tmNode.StateDB()
+	} else {
+		stateStoreDB, err = sdk.NewDB(stateDB, dataDir)
+	}
 	panicError(err)
 
 	genesisDocProvider := node.DefaultGenesisDocProviderFunc(ctx.Config)
@@ -122,15 +165,17 @@ func replayBlock(ctx *server.Context, originDataDir string) {
 		state = sm.LoadState(stateStoreDB)
 	}
 	//cache chain epoch
-	err = fbchain.SetChainId(genDoc.ChainID)
+	err = fibochain.SetChainId(genDoc.ChainID)
 	if err != nil {
 		panicError(err)
 	}
-	// replay
-	doReplay(ctx, state, stateStoreDB, proxyApp, originDataDir, currentAppHash, currentBlockHeight)
-	if viper.GetBool(sm.FlagParalleledTx) {
-		baseapp.ParaLog.PrintLog()
+
+	var blockStore *store.BlockStore
+	if tmNode != nil {
+		blockStore = tmNode.BlockStore()
 	}
+	// replay
+	doReplay(ctx, state, stateStoreDB, blockStore, proxyApp, originDataDir, currentAppHash, currentBlockHeight)
 }
 
 func registerReplayFlags(cmd *cobra.Command) *cobra.Command {
@@ -140,7 +185,17 @@ func registerReplayFlags(cmd *cobra.Command) *cobra.Command {
 	cmd.Flags().Bool(runWithPprofFlag, false, "Dump the pprof of the entire replay process")
 	cmd.Flags().Bool(runWithPprofMemFlag, false, "Dump the mem profile of the entire replay process")
 	cmd.Flags().Bool(saveBlock, false, "save block when replay")
+	cmd.Flags().Bool(FlagEnableRest, false, "start rest service when replay")
+
 	return cmd
+}
+
+func setReplayDefaultFlag() {
+	if len(os.Args) > 1 && os.Args[1] == "replay" {
+		viper.SetDefault(watcher.FlagFastQuery, false)
+		viper.SetDefault(evmtypes.FlagEnableBloomFilter, false)
+		viper.SetDefault(iavl.FlagIavlCommitAsyncNoBatch, true)
+	}
 }
 
 // panic if error is not nil
@@ -150,14 +205,10 @@ func panicError(err error) {
 	}
 }
 
-func openDB(dbName string, dataDir string) (db dbm.DB, err error) {
-	return sdk.NewLevelDB(dbName, dataDir)
-}
-
 func createProxyApp(ctx *server.Context) (proxy.AppConns, error) {
 	rootDir := ctx.Config.RootDir
 	dataDir := filepath.Join(rootDir, "data")
-	db, err := openDB(applicationDB, dataDir)
+	db, err := sdk.NewDB(applicationDB, dataDir)
 	panicError(err)
 	app := newApp(ctx.Logger, db, nil)
 	clientCreator := proxy.NewLocalClientCreator(app)
@@ -224,7 +275,7 @@ func SaveBlock(ctx *server.Context, originDB *store.BlockStore, height int64) {
 	if !alreadyInit {
 		alreadyInit = true
 		dataDir := filepath.Join(ctx.Config.RootDir, "data")
-		blockStoreDB, err := openDB(blockStoreDB, dataDir)
+		blockStoreDB, err := sdk.NewDB(blockStoreDB, dataDir)
 		panicError(err)
 		stateStoreDb = store.NewBlockStore(blockStoreDB)
 	}
@@ -241,11 +292,33 @@ func SaveBlock(ctx *server.Context, originDB *store.BlockStore, height int64) {
 	stateStoreDb.SaveBlock(block, ps, seenCommit)
 }
 
-func doReplay(ctx *server.Context, state sm.State, stateStoreDB dbm.DB,
+func doReplay(ctx *server.Context, state sm.State, stateStoreDB dbm.DB, blockStore *store.BlockStore,
 	proxyApp proxy.AppConns, originDataDir string, lastAppHash []byte, lastBlockHeight int64) {
-	originBlockStoreDB, err := openDB(blockStoreDB, originDataDir)
-	panicError(err)
-	originBlockStore := store.NewBlockStore(originBlockStoreDB)
+
+	trace.GetTraceSummary().Init(
+		trace.Abci,
+		//trace.ValTxMsgs,
+		trace.RunAnte,
+		trace.RunMsg,
+		trace.Refund,
+		//trace.SaveResp,
+		trace.Persist,
+		//trace.Evpool,
+		//trace.SaveState,
+		//trace.FireEvents,
+	)
+
+	defer trace.GetTraceSummary().Dump("Replay")
+
+	var originBlockStore *store.BlockStore
+	var err error
+	if blockStore == nil {
+		originBlockStoreDB, err := sdk.NewDB(blockStoreDB, originDataDir)
+		panicError(err)
+		originBlockStore = store.NewBlockStore(originBlockStoreDB)
+	} else {
+		originBlockStore = blockStore
+	}
 	originLatestBlockHeight := originBlockStore.Height()
 	log.Println("origin latest block height", "height", originLatestBlockHeight)
 
@@ -268,8 +341,9 @@ func doReplay(ctx *server.Context, state sm.State, stateStoreDB dbm.DB,
 		block := originBlockStore.LoadBlock(lastBlockHeight)
 		meta := originBlockStore.LoadBlockMeta(lastBlockHeight)
 		blockExec := sm.NewBlockExecutor(stateStoreDB, ctx.Logger, mockApp, mock.Mempool{}, sm.MockEvidencePool{})
-		blockExec.SetIsAsyncDeliverTx(false) // mockApp not support parallel tx
-		state, _, err = blockExec.ApplyBlock(state, meta.BlockID, block)
+		config.GetFecConfig().SetDeliverTxsExecuteMode(0) // mockApp not support parallel tx
+		state, _, err = blockExec.ApplyBlockWithTrace(state, meta.BlockID, block)
+		config.GetFecConfig().SetDeliverTxsExecuteMode(viper.GetInt(sm.FlagDeliverTxsExecMode))
 		panicError(err)
 	}
 
@@ -278,21 +352,21 @@ func doReplay(ctx *server.Context, state sm.State, stateStoreDB dbm.DB,
 		startDumpPprof()
 		defer stopDumpPprof()
 	}
-
+	//Async save db during replay
+	blockExec.SetIsAsyncSaveDB(true)
 	baseapp.SetGlobalMempool(mock.Mempool{}, ctx.Config.Mempool.SortTxByGp, ctx.Config.Mempool.EnablePendingPool)
 	needSaveBlock := viper.GetBool(saveBlock)
 	global.SetGlobalHeight(lastBlockHeight + 1)
 	for height := lastBlockHeight + 1; height <= haltheight; height++ {
-		log.Println("replaying ", height)
 		block := originBlockStore.LoadBlock(height)
 		meta := originBlockStore.LoadBlockMeta(height)
-		blockExec.SetIsAsyncDeliverTx(viper.GetBool(sm.FlagParalleledTx))
-		state, _, err = blockExec.ApplyBlock(state, meta.BlockID, block)
+		state, _, err = blockExec.ApplyBlockWithTrace(state, meta.BlockID, block)
 		panicError(err)
 		if needSaveBlock {
 			SaveBlock(ctx, originBlockStore, height)
 		}
 	}
+
 }
 
 func dumpMemPprof() error {

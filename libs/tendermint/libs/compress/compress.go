@@ -5,6 +5,7 @@ import (
 	"compress/flate"
 	"compress/gzip"
 	"compress/zlib"
+	"fmt"
 	"io"
 	"sync"
 )
@@ -14,6 +15,7 @@ type compressBroker interface {
 	bestCompress(src []byte) ([]byte, error)
 	fastCompress(src []byte) ([]byte, error)
 	unCompress(compressSrc []byte) ([]byte, error)
+	UnCompressTo(src []byte, buf *bytes.Buffer) error
 }
 
 var (
@@ -45,9 +47,26 @@ func Compress(compressType, flag int, src []byte) ([]byte, error) {
 	return bk.defaultCompress(src)
 }
 
-func UnCompress(compressType int, src []byte) ([]byte, error) {
+func UnCompress(compressType int, src []byte) (ret []byte, err error) {
+	defer func() {
+		if x := recover(); x != nil {
+			err = fmt.Errorf("uncompress panic compress type %v recover %v", compressType, x)
+		}
+	}()
 	bk := getCompressBroker(compressType)
+
 	return bk.unCompress(src)
+}
+
+func UnCompressTo(compressType int, src []byte, buf *bytes.Buffer) (err error) {
+	defer func() {
+		if x := recover(); x != nil {
+			err = fmt.Errorf("uncompress panic compress type %v recover %v", compressType, x)
+		}
+	}()
+	bk := getCompressBroker(compressType)
+
+	return bk.UnCompressTo(src, buf)
 }
 
 func getCompressBroker(compressType int) compressBroker {
@@ -75,6 +94,10 @@ func (z *dummy) defaultCompress(src []byte) ([]byte, error) { return src, nil }
 func (z *dummy) bestCompress(src []byte) ([]byte, error)    { return src, nil }
 func (z *dummy) fastCompress(src []byte) ([]byte, error)    { return src, nil }
 func (z *dummy) unCompress(src []byte) ([]byte, error)      { return src, nil }
+func (z *dummy) UnCompressTo(src []byte, buf *bytes.Buffer) error {
+	buf.Write(src)
+	return nil
+}
 
 // Zlib
 type Zlib struct {
@@ -110,6 +133,17 @@ func (z *Zlib) unCompress(compressSrc []byte) ([]byte, error) {
 	r, err := zlib.NewReader(b)
 	io.Copy(&out, r)
 	return out.Bytes(), err
+}
+
+func (z *Zlib) UnCompressTo(compressSrc []byte, buf *bytes.Buffer) error {
+	b := bytes.NewReader(compressSrc)
+	r, err := zlib.NewReader(b)
+	if err != nil {
+		return err
+	}
+	_, err = io.Copy(buf, r)
+	_ = r.Close()
+	return err
 }
 
 // -------------------------------------------------------------
@@ -150,6 +184,17 @@ func (g *Gzip) unCompress(compressSrc []byte) ([]byte, error) {
 	return out.Bytes(), err
 }
 
+func (g *Gzip) UnCompressTo(compressSrc []byte, buf *bytes.Buffer) error {
+	b := bytes.NewReader(compressSrc)
+	r, err := gzip.NewReader(b)
+	if err != nil {
+		return err
+	}
+	_, err = io.Copy(buf, r)
+	_ = r.Close()
+	return err
+}
+
 // -------------------------------------------------------------
 
 // Flate
@@ -186,4 +231,12 @@ func (f *Flate) unCompress(compressSrc []byte) ([]byte, error) {
 	r := flate.NewReader(b)
 	_, err := io.Copy(&out, r)
 	return out.Bytes(), err
+}
+
+func (f *Flate) UnCompressTo(compressSrc []byte, buf *bytes.Buffer) error {
+	b := bytes.NewReader(compressSrc)
+	r := flate.NewReader(b)
+	_, err := io.Copy(buf, r)
+	_ = r.Close()
+	return err
 }

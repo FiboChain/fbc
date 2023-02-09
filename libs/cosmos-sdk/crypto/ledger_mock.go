@@ -14,6 +14,7 @@ import (
 	secp256k1 "github.com/tendermint/btcd/btcec"
 
 	bip39 "github.com/cosmos/go-bip39"
+
 	"github.com/FiboChain/fbc/libs/cosmos-sdk/crypto/keys/hd"
 	"github.com/FiboChain/fbc/libs/cosmos-sdk/tests"
 	sdk "github.com/FiboChain/fbc/libs/cosmos-sdk/types"

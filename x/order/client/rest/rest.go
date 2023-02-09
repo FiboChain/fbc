@@ -6,10 +6,10 @@ import (
 	"net/http"
 	"strconv"
 
+	"github.com/gorilla/mux"
 	"github.com/FiboChain/fbc/libs/cosmos-sdk/client/context"
 	"github.com/FiboChain/fbc/libs/cosmos-sdk/codec"
 	"github.com/FiboChain/fbc/libs/cosmos-sdk/types/rest"
-	"github.com/gorilla/mux"
 
 	"github.com/FiboChain/fbc/x/common"
 	"github.com/FiboChain/fbc/x/order/keeper"

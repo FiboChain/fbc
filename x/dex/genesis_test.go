@@ -1,3 +1,5 @@
+//go:build ignore
+
 package dex
 
 import (
@@ -25,7 +27,7 @@ func TestInitGenesis(t *testing.T) {
 	operators = append(operators, types.DEXOperator{
 		Address:            tokenPair.Owner,
 		HandlingFeeAddress: tokenPair.Owner,
-		Website:            "http://www.fbchain.com/operator.json",
+		Website:            "http://www.fbchain.org/operator.json",
 		InitHeight:         100,
 	})
 

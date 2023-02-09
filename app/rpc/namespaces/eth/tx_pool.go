@@ -2,8 +2,6 @@ package eth
 
 import (
 	"fmt"
-	authtypes "github.com/FiboChain/fbc/libs/cosmos-sdk/x/auth/types"
-	tmdb "github.com/FiboChain/fbc/libs/tm-db"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -17,8 +15,10 @@ import (
 	sdk "github.com/FiboChain/fbc/libs/cosmos-sdk/types"
 	sdkerrors "github.com/FiboChain/fbc/libs/cosmos-sdk/types/errors"
 	authclient "github.com/FiboChain/fbc/libs/cosmos-sdk/x/auth/client/utils"
+	authtypes "github.com/FiboChain/fbc/libs/cosmos-sdk/x/auth/types"
 	"github.com/FiboChain/fbc/libs/tendermint/libs/log"
 	"github.com/FiboChain/fbc/libs/tendermint/types"
+	tmdb "github.com/FiboChain/fbc/libs/tm-db"
 	evmtypes "github.com/FiboChain/fbc/x/evm/types"
 	"github.com/spf13/viper"
 )
@@ -72,7 +72,7 @@ func NewTxPool(clientCtx clientcontext.CLIContext, api *PublicEthereumAPI) *TxPo
 func openDB() (tmdb.DB, error) {
 	rootDir := viper.GetString("home")
 	dataDir := filepath.Join(rootDir, "data")
-	return sdk.NewLevelDB(txPoolDb, dataDir)
+	return sdk.NewDB(txPoolDb, dataDir)
 }
 
 func (pool *TxPool) initDB(api *PublicEthereumAPI) error {
@@ -122,7 +122,7 @@ func (pool *TxPool) initDB(api *PublicEthereumAPI) error {
 
 func broadcastTxByTxPool(api *PublicEthereumAPI, tx *evmtypes.MsgEthereumTx, txBytes []byte) (common.Hash, error) {
 	//TODO: to delete after venus height
-	info, err := api.clientCtx.Client.BlockchainInfo(0, 0)
+	lastHeight, err := api.clientCtx.Client.LatestBlockNumber()
 	if err != nil {
 		return common.Hash{}, err
 	}
@@ -136,7 +136,7 @@ func broadcastTxByTxPool(api *PublicEthereumAPI, tx *evmtypes.MsgEthereumTx, txB
 		return common.Hash{}, err
 	}
 
-	txHash := common.BytesToHash(types.Tx(txBytes).Hash(info.LastHeight))
+	txHash := common.BytesToHash(types.Tx(txBytes).Hash(lastHeight))
 	tx.Data.Hash = &txHash
 	from := common.HexToAddress(tx.GetFrom())
 	api.txPool.mu.Lock()
@@ -151,11 +151,12 @@ func broadcastTxByTxPool(api *PublicEthereumAPI, tx *evmtypes.MsgEthereumTx, txB
 
 func (pool *TxPool) CacheAndBroadcastTx(api *PublicEthereumAPI, address common.Address, tx *evmtypes.MsgEthereumTx) error {
 	// get currentNonce
-	acc, err := getAccountFromChain(api.clientCtx, address)
+	blockNrOrHash := rpctypes.BlockNumberOrHashWithNumber(rpctypes.PendingBlockNumber)
+	pCurrentNonce, err := api.GetTransactionCount(address, blockNrOrHash)
 	if err != nil {
 		return err
 	}
-	currentNonce := acc.GetSequence()
+	currentNonce := uint64(*pCurrentNonce)
 
 	if tx.Data.AccountNonce < currentNonce {
 		return fmt.Errorf("AccountNonce of tx is less than currentNonce in memPool: AccountNonce[%d], currentNonce[%d]", tx.Data.AccountNonce, currentNonce)
@@ -269,12 +270,12 @@ func (pool *TxPool) dropTxs(index int, address common.Address) {
 
 func (pool *TxPool) broadcast(tx *evmtypes.MsgEthereumTx) error {
 	// TODO: to delete after venus height
-	info, err := pool.clientCtx.Client.BlockchainInfo(0, 0)
+	lastHeight, err := pool.clientCtx.Client.LatestBlockNumber()
 	if err != nil {
 		return err
 	}
 	var txEncoder sdk.TxEncoder
-	if types.HigherThanVenus(info.LastHeight) {
+	if types.HigherThanVenus(lastHeight) {
 		txEncoder = authclient.GetTxEncoder(nil, authclient.WithEthereumTx())
 	} else {
 		txEncoder = authclient.GetTxEncoder(pool.clientCtx.Codec)

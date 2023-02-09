@@ -2,7 +2,9 @@ package main
 
 import (
 	"fmt"
+
 	"github.com/FiboChain/fbc/app/logevents"
+	"github.com/FiboChain/fbc/libs/system"
 	"github.com/spf13/cobra"
 
 	"github.com/FiboChain/fbc/libs/cosmos-sdk/codec"
@@ -11,7 +13,7 @@ import (
 func subscribeCmd(cdc *codec.Codec) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "subscribe",
-		Short: "subscribe fbc logs from kafka",
+		Short: "subscribe " + system.ChainName + " logs from kafka",
 	}
 	cmd.AddCommand(subscribeLog())
 	return cmd

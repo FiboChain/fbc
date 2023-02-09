@@ -1,7 +1,6 @@
 package server_test
 
 import (
-	"github.com/ethereum/go-ethereum/common"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -16,8 +15,6 @@ func TestGenerateCoinKey(t *testing.T) {
 	t.Parallel()
 	addr, mnemonic, err := server.GenerateCoinKey()
 	require.NoError(t, err)
-
-	t.Log(addr.Bech32String("fb"), mnemonic)
 
 	// Test creation
 	info, err := keys.NewInMemoryKeyBase().CreateAccount("xxx", mnemonic, "", "012345678", crkeys.CreateHDPath(0, 0).String(), crkeys.Secp256k1)
@@ -36,8 +33,6 @@ func TestGenerateSaveCoinKey(t *testing.T) {
 	addr, mnemonic, err := server.GenerateSaveCoinKey(kb, "keyname", "012345678", false, "")
 	require.NoError(t, err)
 
-	t.Log(common.BytesToAddress(addr.Bytes()), addr.Bech32String("fb"), mnemonic)
-
 	// Test key was actually saved
 	info, err := kb.Get("keyname")
 	require.NoError(t, err)
@@ -46,7 +41,6 @@ func TestGenerateSaveCoinKey(t *testing.T) {
 	// Test in-memory recovery
 	info, err = keys.NewInMemoryKeyBase().CreateAccount("xxx", mnemonic, "", "012345678", crkeys.CreateHDPath(0, 0).String(), crkeys.Secp256k1)
 	require.NoError(t, err)
-
 	require.Equal(t, addr, info.GetAddress())
 }
 

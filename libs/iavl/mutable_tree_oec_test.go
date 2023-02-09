@@ -43,7 +43,7 @@ func TestSaveVersion(t *testing.T) {
 
 	testTree := func(data map[string]string, tree *ImmutableTree) {
 		for k, v := range data {
-			_, value := tree.Get([]byte(k))
+			_, value := tree.GetWithIndex([]byte(k))
 			require.Equal(t, value, []byte(v))
 		}
 	}
@@ -110,8 +110,11 @@ func TestSaveVersionCommitIntervalHeight(t *testing.T) {
 	tree.Set([]byte(k2), []byte("k22"))
 	_, _, _, err = tree.SaveVersion(false)
 
-	require.Equal(t, 5, len(tree.ndb.prePersistNodeCache)+len(tree.ndb.nodeCache))
-	require.Equal(t, 3, len(tree.ndb.orphanNodeCache))
+	tree.ndb.sanityCheckHandleOrphansResult(tree.version + 1)
+	tree.ndb.oi.enqueueResult(tree.version)
+
+	require.Equal(t, 5, tree.ndb.prePersistNodeCacheLen()+tree.ndb.nc.nodeCacheLen())
+	require.Equal(t, 3, tree.ndb.oi.orphanNodeCacheLen())
 
 	_, _, _, err = tree.SaveVersion(false)
 	require.NoError(t, err)
@@ -123,8 +126,8 @@ func TestSaveVersionCommitIntervalHeight(t *testing.T) {
 
 	_, _, _, err = tree.SaveVersion(false)
 	require.NoError(t, err)
-	require.Equal(t, 0, len(tree.ndb.prePersistNodeCache))
-	require.Equal(t, 0, len(tree.ndb.orphanNodeCache))
+	require.Equal(t, 0, tree.ndb.prePersistNodeCacheLen())
+	require.Equal(t, 0, tree.ndb.oi.orphanNodeCacheLen())
 
 	//require.Equal(t, 5, len(tree.ndb.nodeCache)+len(tree.ndb.tempPrePersistNodeCache))
 	tree.Set([]byte("k5"), []byte("5555555555"))
@@ -172,14 +175,14 @@ func TestConcurrentGetNode(t *testing.T) {
 				queryTree, newErr := tree.GetImmutable(tree.version)
 				require.Nil(t, newErr)
 				idx := rand.Int() % len(dataKey)
-				_, value := queryTree.Get([]byte(dataKey[idx]))
+				_, value := queryTree.GetWithIndex([]byte(dataKey[idx]))
 				dataLock.RLock()
 				if originData[string(dataKey[idx])] != string(value) {
 					//fmt.Println("not equal", originData[string(dataKey[idx])], string(value))
 					time.Sleep(time.Millisecond * 10)
 				}
 				dataLock.RUnlock()
-				_, value = queryTree.Get([]byte(dataKey[idx]))
+				_, value = queryTree.GetWithIndex([]byte(dataKey[idx]))
 				dataLock.RLock()
 				require.Equal(t, originData[string(dataKey[idx])], string(value))
 				dataLock.RUnlock()
@@ -283,12 +286,12 @@ func TestPruningHistoryState(t *testing.T) {
 
 	batchSaveVersion(t, tree, minHistoryStateNum*int(CommitIntervalHeight)-2)
 
-	tree.commitCh <- commitEvent{-1, nil, nil, nil, nil, 0}
+	tree.commitCh <- commitEvent{-1, nil, nil, nil, nil, 0, nil, nil, false}
 
 	iTree, err := tree.GetImmutable(CommitIntervalHeight * (minHistoryStateNum - 1))
 	require.NoError(t, err)
 	require.NotNil(t, iTree)
-	_, v := iTree.Get(k2)
+	_, v := iTree.GetWithIndex(k2)
 	require.Equal(t, v2New, v)
 
 	iTree, err = tree.GetImmutable(CommitIntervalHeight * 1)
@@ -347,7 +350,7 @@ func TestPruningHistoryStateRandom(t *testing.T) {
 		require.NoError(t, err)
 	}
 
-	tree.commitCh <- commitEvent{-1, nil, nil, nil, nil, 0}
+	tree.commitCh <- commitEvent{-1, nil, nil, nil, nil, 0, nil, nil, false}
 
 	nodeCount := 0
 	tree.ndb.traverseNodes(func(hash []byte, node *Node) {
@@ -423,7 +426,7 @@ func TestConcurrentQuery(t *testing.T) {
 				queryTree, newErr := tree.GetImmutable(queryVersion)
 				require.Nil(t, newErr, "query:%d current:%d\n", queryVersion, tree.version)
 				idx := rand.Int() % len(dataKey)
-				_, value := queryTree.Get([]byte(dataKey[idx]))
+				_, value := queryTree.GetWithIndex([]byte(dataKey[idx]))
 				require.NotNil(t, value)
 				require.NotEqual(t, []byte{}, value)
 				wg.Done()
@@ -467,7 +470,7 @@ func TestStopTree(t *testing.T) {
 	_, _, _, err := tree.SaveVersion(false)
 	require.NoError(t, err)
 	tree.StopTree()
-	require.Equal(t, 5, len(tree.ndb.nodeCache))
+	require.Equal(t, 5, tree.ndb.nc.nodeCacheLen())
 }
 
 func TestLog(t *testing.T) {
@@ -535,9 +538,9 @@ func TestCommitSchedule(t *testing.T) {
 	wg.Add(1)
 	versions := tree.deepCopyVersions()
 	batch := tree.NewBatch()
-	tree.commitCh <- commitEvent{CommitIntervalHeight, versions, batch, nil, nil, 0}
+	tree.commitCh <- commitEvent{CommitIntervalHeight, versions, batch, nil, nil, 0, nil, nil, false}
 
-	tree.commitCh <- commitEvent{CommitIntervalHeight, versions, batch, nil, &wg, 0}
+	tree.commitCh <- commitEvent{CommitIntervalHeight, versions, batch, nil, &wg, 0, nil, nil, false}
 	wg.Wait()
 
 }

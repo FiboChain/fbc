@@ -28,7 +28,7 @@
     "auth": {
       "accounts": [
         {
-          "type": "fbchain/EthAccount",
+          "type": "fibochain/EthAccount",
           "value": {
             "account_number": 0,
             "address": "fb1htyzdfys47q30euxwn6npk0vdsdnsfyz0mzlga",
@@ -45,7 +45,7 @@
           }
         },
         {
-          "type": "fbchain/EthAccount",
+          "type": "fibochain/EthAccount",
           "value":
           {
               "account_number": 1,
@@ -64,7 +64,7 @@
           }
         },
         {
-          "type": "fbchain/EthAccount",
+          "type": "fibochain/EthAccount",
           "value":
           {
               "account_number": 2,
@@ -214,7 +214,7 @@
             "memo": "166931a53c668fb1a3542314f54193f876e4f055@172.31.7.204:26656",
             "msg": [
               {
-                "type": "fbchain/staking/MsgCreateValidator",
+                "type": "fibochain/staking/MsgCreateValidator",
                 "value": {
                   "delegator_address": "fb10s3jypfmujtmcqmaxmn523xzezu898ppjzrstd",
                   "description": {
@@ -253,7 +253,7 @@
             "memo": "c76b88203a6b180305cbcc26674cffab476aa001@172.31.10.15:26656",
             "msg": [
               {
-                "type": "fbchain/staking/MsgCreateValidator",
+                "type": "fibochain/staking/MsgCreateValidator",
                 "value": {
                   "delegator_address": "fb1htyzdfys47q30euxwn6npk0vdsdnsfyz0mzlga",
                   "description": {
@@ -292,7 +292,7 @@
             "memo": "528d839d6a74645cc819cc960a57cc5eeb376edb@172.31.11.157:26656",
             "msg": [
               {
-                "type": "fbchain/staking/MsgCreateValidator",
+                "type": "fibochain/staking/MsgCreateValidator",
                 "value": {
                   "delegator_address": "fb1jw6wte9sn202ytqgleeafanzn6f34tcg73hsg2",
                   "description": {

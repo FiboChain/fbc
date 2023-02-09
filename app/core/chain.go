@@ -14,7 +14,7 @@ import (
 
 // ChainContext implements Ethereum's core.ChainContext and consensus.Engine
 // interfaces. It is needed in order to apply and process Ethereum
-// transactions. There should only be a single implementation in FBchain. For
+// transactions. There should only be a single implementation in FBChain. For
 // the purposes of FBchain, it should be support retrieving headers and
 // consensus parameters from  the current blockchain to be used during
 // transaction processing.

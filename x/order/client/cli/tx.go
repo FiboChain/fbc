@@ -59,7 +59,7 @@ func getCmdNewOrder(cdc *codec.Codec) *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringVarP(&product, "product", "", "", "Trading pair in full name of the tokens: ${baseAssetSymbol}_${quoteAssetSymbol}, for example \"mycoin_fibo\".")
+	cmd.Flags().StringVarP(&product, "product", "", "", "Trading pair in full name of the tokens: ${baseAssetSymbol}_${quoteAssetSymbol}, for example \"mycoin_okt\".")
 	cmd.Flags().StringVarP(&side, "side", "s", "", "BUY or SELL (default \"SELL\")")
 	cmd.Flags().StringVarP(&price, "price", "p", "", "The price of the order")
 	cmd.Flags().StringVarP(&quantity, "quantity", "q", "", "The quantity of the order")

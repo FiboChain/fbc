@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 
+	storetypes "github.com/FiboChain/fbc/libs/cosmos-sdk/store/types"
+
 	"github.com/FiboChain/fbc/libs/iavl"
 	"github.com/FiboChain/fbc/libs/tendermint/crypto/merkle"
 )
@@ -132,5 +134,8 @@ func DefaultProofRuntime() (prt *merkle.ProofRuntime) {
 	prt.RegisterOpDecoder(iavl.ProofOpIAVLValue, iavl.ValueOpDecoder)
 	prt.RegisterOpDecoder(iavl.ProofOpIAVLAbsence, iavl.AbsenceOpDecoder)
 	prt.RegisterOpDecoder(ProofOpMultiStore, MultiStoreProofOpDecoder)
+
+	prt.RegisterOpDecoder(storetypes.ProofOpIAVLCommitment, storetypes.CommitmentOpDecoder)
+	prt.RegisterOpDecoder(storetypes.ProofOpSimpleMerkleCommitment, storetypes.CommitmentOpDecoder)
 	return
 }

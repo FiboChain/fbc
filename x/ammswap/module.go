@@ -3,6 +3,7 @@ package ammswap
 import (
 	"encoding/json"
 
+	"github.com/gorilla/mux"
 	"github.com/FiboChain/fbc/libs/cosmos-sdk/client/context"
 	"github.com/FiboChain/fbc/libs/cosmos-sdk/codec"
 	sdk "github.com/FiboChain/fbc/libs/cosmos-sdk/types"
@@ -10,7 +11,6 @@ import (
 	abci "github.com/FiboChain/fbc/libs/tendermint/abci/types"
 	"github.com/FiboChain/fbc/x/ammswap/client/cli"
 	"github.com/FiboChain/fbc/x/ammswap/client/rest"
-	"github.com/gorilla/mux"
 	"github.com/spf13/cobra"
 )
 

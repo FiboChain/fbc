@@ -12,7 +12,6 @@ import (
 	"github.com/FiboChain/fbc/libs/tendermint/crypto/secp256k1"
 	"github.com/pkg/errors"
 
-	ethaccounts "github.com/ethereum/go-ethereum/accounts"
 	"github.com/FiboChain/fbc/libs/cosmos-sdk/crypto"
 	"github.com/FiboChain/fbc/libs/cosmos-sdk/crypto/keys/hd"
 	"github.com/FiboChain/fbc/libs/cosmos-sdk/types"
@@ -237,8 +236,7 @@ func (kb baseKeybase) CreateMnemonic(
 		mnemonic = mnemonicInput
 	}
 
-	bip44HdPath := ethaccounts.DefaultBaseDerivationPath.String()
-	info, err = kb.CreateAccount(keyWriter, name, mnemonic, DefaultBIP39Passphrase, passwd, bip44HdPath, algo)
+	info, err = kb.CreateAccount(keyWriter, name, mnemonic, DefaultBIP39Passphrase, passwd, types.GetConfig().GetFullFundraiserPath(), algo)
 	if err != nil {
 		return nil, "", err
 	}

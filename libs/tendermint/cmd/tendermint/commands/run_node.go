@@ -14,6 +14,7 @@ import (
 	cfg "github.com/FiboChain/fbc/libs/tendermint/config"
 	tmos "github.com/FiboChain/fbc/libs/tendermint/libs/os"
 	nm "github.com/FiboChain/fbc/libs/tendermint/node"
+	"github.com/FiboChain/fbc/libs/tendermint/types"
 )
 
 var (
@@ -72,6 +73,7 @@ func AddNodeFlags(cmd *cobra.Command) {
 	cmd.Flags().Bool("p2p.pex", config.P2P.PexReactor, "Enable/disable Peer-Exchange")
 	cmd.Flags().Bool("p2p.seed_mode", config.P2P.SeedMode, "Enable/disable seed mode")
 	cmd.Flags().String("p2p.private_peer_ids", config.P2P.PrivatePeerIDs, "Comma-delimited private peer IDs")
+	cmd.Flags().String("p2p.sentry_addrs", "", "Comma-delimited addresses")
 
 	// consensus flags
 	cmd.Flags().Bool(
@@ -114,10 +116,25 @@ func AddNodeFlags(cmd *cobra.Command) {
 		config.Mempool.MaxTxNumPerBlock,
 		"Maximum number of transactions in a block",
 	)
+	cmd.Flags().Bool(
+		"mempool.enable_delete_min_gp_tx",
+		config.Mempool.EnableDeleteMinGPTx,
+		"Enable delete the minimum gas price tx from mempool when mempool is full",
+	)
 	cmd.Flags().Int64(
 		"mempool.max_gas_used_per_block",
 		config.Mempool.MaxGasUsedPerBlock,
 		"Maximum gas used of transactions in a block",
+	)
+	cmd.Flags().Bool(
+		"mempool.enable-pgu",
+		false,
+		"enable precise gas used",
+	)
+	cmd.Flags().Float64(
+		"mempool.pgu-adjustment",
+		1,
+		"adjustment for pgu, such as 0.9 or 1.1",
 	)
 	cmd.Flags().Bool(
 		"mempool.sort_tx_by_gp",
@@ -154,6 +171,11 @@ func AddNodeFlags(cmd *cobra.Command) {
 		config.Mempool.PendingPoolMaxTxPerAddress,
 		"Maximum number of transactions per address in the pending pool",
 	)
+	cmd.Flags().Bool(
+		"mempool.pending_remove_event",
+		config.Mempool.PendingRemoveEvent,
+		"Push event when remove a pending tx",
+	)
 
 	cmd.Flags().String(
 		"mempool.node_key_whitelist",
@@ -167,21 +189,36 @@ func AddNodeFlags(cmd *cobra.Command) {
 		"enable wrapped tx",
 	)
 
+	cmd.Flags().Bool(
+		"mempool.check_tx_cost",
+		false,
+		"Calculate tx type count and time in function checkTx per block",
+	)
+	cmd.Flags().String(
+		"tx_index.indexer",
+		config.TxIndex.Indexer,
+		"indexer to use for transactions, options: null, kv",
+	)
 	cmd.Flags().String(
 		"local_perf",
 		"",
 		"send tx/wtx to mempool, only for local performance test",
-		)
+	)
 
 	// db flags
 	cmd.Flags().String(
 		"db_backend",
-		config.DBBackend,
+		types.DBBackend,
 		"Database backend: goleveldb | cleveldb | boltdb | rocksdb")
 	cmd.Flags().String(
 		"db_dir",
 		config.DBPath,
 		"Database directory")
+
+	cmd.Flags().String(
+		"grpc.address",
+		config.GRPC.Address,
+		"grpc server address")
 
 	addMoreFlags(cmd)
 }

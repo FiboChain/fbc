@@ -7,7 +7,7 @@ import (
 	"log"
 
 	dbm "github.com/FiboChain/fbc/libs/tm-db"
-	"github.com/tecbot/gorocksdb"
+	"github.com/cosmos/gorocksdb"
 )
 
 func init() {

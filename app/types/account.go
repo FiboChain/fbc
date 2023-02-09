@@ -6,7 +6,6 @@ import (
 	"fmt"
 
 	"github.com/tendermint/go-amino"
-
 	"gopkg.in/yaml.v2"
 
 	sdk "github.com/FiboChain/fbc/libs/cosmos-sdk/types"
@@ -16,11 +15,13 @@ import (
 	authtypes "github.com/FiboChain/fbc/libs/cosmos-sdk/x/auth/types"
 
 	ethcmn "github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/crypto"
 	ethcrypto "github.com/ethereum/go-ethereum/crypto"
 )
 
 var _ exported.Account = (*EthAccount)(nil)
 var _ exported.GenesisAccount = (*EthAccount)(nil)
+var emptyCodeHash = crypto.Keccak256(nil)
 
 func init() {
 	authtypes.RegisterAccountTypeCodec(&EthAccount{}, EthAccountName)
@@ -39,6 +40,7 @@ type EthAccount struct {
 
 func (acc *EthAccount) UnmarshalFromAmino(cdc *amino.Codec, data []byte) error {
 	var dataLen uint64 = 0
+	var baseAccountFlag bool
 
 	for {
 		data = data[dataLen:]
@@ -71,12 +73,16 @@ func (acc *EthAccount) UnmarshalFromAmino(cdc *amino.Codec, data []byte) error {
 
 		switch pos {
 		case 1:
-			base := new(auth.BaseAccount)
-			err = base.UnmarshalFromAmino(cdc, subData)
+			baseAccountFlag = true
+			if acc.BaseAccount == nil {
+				acc.BaseAccount = &auth.BaseAccount{}
+			} else {
+				*acc.BaseAccount = auth.BaseAccount{}
+			}
+			err = acc.BaseAccount.UnmarshalFromAmino(cdc, subData)
 			if err != nil {
 				return err
 			}
-			acc.BaseAccount = base
 		case 2:
 			acc.CodeHash = make([]byte, len(subData))
 			copy(acc.CodeHash, subData)
@@ -84,14 +90,31 @@ func (acc *EthAccount) UnmarshalFromAmino(cdc *amino.Codec, data []byte) error {
 			return fmt.Errorf("unexpect feild num %d", pos)
 		}
 	}
+	if !baseAccountFlag {
+		acc.BaseAccount = nil
+	}
 	return nil
 }
 
-func (acc EthAccount) Copy() interface{} {
-	return &EthAccount{
-		authtypes.NewBaseAccount(acc.Address, acc.Coins, acc.PubKey, acc.AccountNumber, acc.Sequence),
-		acc.CodeHash,
-	}
+type componentAccount struct {
+	ethAccount  EthAccount
+	baseAccount authtypes.BaseAccount
+}
+
+func (acc EthAccount) Copy() sdk.Account {
+	// we need only allocate one object on the heap with componentAccount
+	var cacc componentAccount
+
+	cacc.baseAccount.Address = acc.Address
+	cacc.baseAccount.Coins = acc.Coins
+	cacc.baseAccount.PubKey = acc.PubKey
+	cacc.baseAccount.AccountNumber = acc.AccountNumber
+	cacc.baseAccount.Sequence = acc.Sequence
+
+	cacc.ethAccount.BaseAccount = &cacc.baseAccount
+	cacc.ethAccount.CodeHash = acc.CodeHash
+
+	return &cacc.ethAccount
 }
 
 func (acc EthAccount) AminoSize(cdc *amino.Codec) int {
@@ -106,63 +129,46 @@ func (acc EthAccount) AminoSize(cdc *amino.Codec) int {
 	return size
 }
 
-var ethAccountBufferPool = amino.NewBufferPool()
-
 func (acc EthAccount) MarshalToAmino(cdc *amino.Codec) ([]byte, error) {
-	var buf = ethAccountBufferPool.Get()
-	defer ethAccountBufferPool.Put(buf)
-	for pos := 1; pos < 3; pos++ {
-		lBeforeKey := buf.Len()
-		var noWrite bool
-		posByte, err := amino.EncodeProtoPosAndTypeMustOneByte(pos, amino.Typ3_ByteLength)
-		if err != nil {
-			return nil, err
-		}
-		err = buf.WriteByte(posByte)
-		if err != nil {
-			return nil, err
-		}
+	var buf bytes.Buffer
+	buf.Grow(acc.AminoSize(cdc))
+	err := acc.MarshalAminoTo(cdc, &buf)
+	if err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), nil
+}
 
-		switch pos {
-		case 1:
-			if acc.BaseAccount == nil {
-				noWrite = true
-				break
-			}
-			data, err := acc.BaseAccount.MarshalToAmino(cdc)
-			if err != nil {
-				return nil, err
-			}
-			err = amino.EncodeUvarintToBuffer(buf, uint64(len(data)))
-			if err != nil {
-				return nil, err
-			}
-			_, err = buf.Write(data)
-			if err != nil {
-				return nil, err
-			}
-		case 2:
-			codeHashLen := len(acc.CodeHash)
-			if codeHashLen == 0 {
-				noWrite = true
-				break
-			}
-			err := amino.EncodeUvarintToBuffer(buf, uint64(codeHashLen))
-			if err != nil {
-				return nil, err
-			}
-			_, err = buf.Write(acc.CodeHash)
-			if err != nil {
-				return nil, err
-			}
-		default:
-			panic("unreachable")
+func (acc EthAccount) MarshalAminoTo(cdc *amino.Codec, buf *bytes.Buffer) error {
+	// field 1
+	if acc.BaseAccount != nil {
+		const pbKey = 1<<3 | 2
+		buf.WriteByte(pbKey)
+		baccSize := acc.BaseAccount.AminoSize(cdc)
+		err := amino.EncodeUvarintToBuffer(buf, uint64(baccSize))
+		if err != nil {
+			return err
 		}
-		if noWrite {
-			buf.Truncate(lBeforeKey)
+		lenBeforeData := buf.Len()
+		err = acc.BaseAccount.MarshalAminoTo(cdc, buf)
+		if err != nil {
+			return err
+		}
+		if buf.Len()-lenBeforeData != baccSize {
+			return amino.NewSizerError(acc.BaseAccount, baccSize, buf.Len()-lenBeforeData)
 		}
 	}
-	return amino.GetBytesBufferCopy(buf), nil
+
+	// field 2
+	if len(acc.CodeHash) != 0 {
+		const pbKey = 2<<3 | 2
+		err := amino.EncodeByteSliceWithKeyToBuffer(buf, acc.CodeHash, pbKey)
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 // ProtoAccount defines the prototype function for BaseAccount used for an
@@ -220,9 +226,13 @@ type ethermintAccountPretty struct {
 
 // MarshalYAML returns the YAML representation of an account.
 func (acc EthAccount) MarshalYAML() (interface{}, error) {
+	ethAddress := ""
+	if !sdk.IsWasmAddress(acc.Address) {
+		ethAddress = acc.EthAddress().String()
+	}
 	alias := ethermintAccountPretty{
 		Address:       acc.Address,
-		EthAddress:    acc.EthAddress().String(),
+		EthAddress:    ethAddress,
 		Coins:         acc.Coins,
 		AccountNumber: acc.AccountNumber,
 		Sequence:      acc.Sequence,
@@ -251,7 +261,9 @@ func (acc EthAccount) MarshalJSON() ([]byte, error) {
 	var ethAddress = ""
 
 	if acc.BaseAccount != nil && acc.Address != nil {
-		ethAddress = acc.EthAddress().String()
+		if !sdk.IsWasmAddress(acc.Address) {
+			ethAddress = acc.EthAddress().String()
+		}
 	}
 
 	alias := ethermintAccountPretty{
@@ -338,4 +350,9 @@ func (acc *EthAccount) UnmarshalJSON(bz []byte) error {
 func (acc EthAccount) String() string {
 	out, _ := yaml.Marshal(acc)
 	return string(out)
+}
+
+// IsContract returns if the account contains contract code.
+func (acc EthAccount) IsContract() bool {
+	return !bytes.Equal(acc.CodeHash, emptyCodeHash)
 }

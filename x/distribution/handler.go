@@ -2,6 +2,7 @@ package distribution
 
 import (
 	sdk "github.com/FiboChain/fbc/libs/cosmos-sdk/types"
+	tmtypes "github.com/FiboChain/fbc/libs/tendermint/types"
 
 	"github.com/FiboChain/fbc/x/distribution/keeper"
 	"github.com/FiboChain/fbc/x/distribution/types"
@@ -11,7 +12,11 @@ import (
 // NewHandler manages all distribution tx
 func NewHandler(k keeper.Keeper) sdk.Handler {
 	return func(ctx sdk.Context, msg sdk.Msg) (*sdk.Result, error) {
-		ctx = ctx.WithEventManager(sdk.NewEventManager())
+		ctx.SetEventManager(sdk.NewEventManager())
+
+		if tmtypes.HigherThanVenus2(ctx.BlockHeight()) && !k.GetWithdrawRewardEnabled(ctx) {
+			return nil, types.ErrCodeDisabledWithdrawRewards()
+		}
 
 		switch msg := msg.(type) {
 		case types.MsgSetWithdrawAddress:
@@ -19,6 +24,17 @@ func NewHandler(k keeper.Keeper) sdk.Handler {
 
 		case types.MsgWithdrawValidatorCommission:
 			return handleMsgWithdrawValidatorCommission(ctx, msg, k)
+
+		case types.MsgWithdrawDelegatorReward:
+			if k.CheckDistributionProposalValid(ctx) {
+				return handleMsgWithdrawDelegatorReward(ctx, msg, k)
+			}
+			return nil, types.ErrUnknownDistributionMsgType()
+		case types.MsgWithdrawDelegatorAllRewards:
+			if k.CheckDistributionProposalValid(ctx) {
+				return handleMsgWithdrawDelegatorAllRewards(ctx, msg, k)
+			}
+			return nil, types.ErrUnknownDistributionMsgType()
 
 		default:
 			return nil, types.ErrUnknownDistributionMsgType()
@@ -60,11 +76,26 @@ func handleMsgWithdrawValidatorCommission(ctx sdk.Context, msg types.MsgWithdraw
 	return &sdk.Result{Events: ctx.EventManager().Events()}, nil
 }
 
-func NewCommunityPoolSpendProposalHandler(k Keeper) govtypes.Handler {
+func NewDistributionProposalHandler(k Keeper) govtypes.Handler {
 	return func(ctx sdk.Context, content *govtypes.Proposal) error {
 		switch c := content.Content.(type) {
 		case types.CommunityPoolSpendProposal:
 			return keeper.HandleCommunityPoolSpendProposal(ctx, k, c)
+		case types.ChangeDistributionTypeProposal:
+			if tmtypes.HigherThanVenus2(ctx.BlockHeight()) {
+				return keeper.HandleChangeDistributionTypeProposal(ctx, k, c)
+			}
+			return types.ErrUnknownDistributionCommunityPoolProposaType()
+		case types.WithdrawRewardEnabledProposal:
+			if tmtypes.HigherThanVenus2(ctx.BlockHeight()) {
+				return keeper.HandleWithdrawRewardEnabledProposal(ctx, k, c)
+			}
+			return types.ErrUnknownDistributionCommunityPoolProposaType()
+		case types.RewardTruncatePrecisionProposal:
+			if tmtypes.HigherThanVenus2(ctx.BlockHeight()) {
+				return keeper.HandleRewardTruncatePrecisionProposal(ctx, k, c)
+			}
+			return types.ErrUnknownDistributionCommunityPoolProposaType()
 
 		default:
 			return types.ErrUnknownDistributionCommunityPoolProposaType()

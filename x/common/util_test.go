@@ -18,7 +18,7 @@ func initConfig() {
 
 func TestHasSufCoins(t *testing.T) {
 	initConfig()
-	addr, err := sdk.AccAddressFromBech32("ex1rf9wr069pt64e58f2w3mjs9w72g8vemzw26658")
+	addr, err := sdk.AccAddressFromBech32("fb1x75n67492zjfvlwnfp080lesh93ysj8xd3y9p2")
 	require.Nil(t, err)
 
 	availDecCoins, err := sdk.ParseDecCoins(fmt.Sprintf("%d%s,%d%s",
@@ -54,19 +54,113 @@ func TestBlackHoleAddress(t *testing.T) {
 	addr := BlackHoleAddress()
 	a := addr.String()
 	fmt.Println(a)
-	require.Equal(t, "ex1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqm2k6w2", addr.String())
+	require.Equal(t, "fb1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqpvmzvy", addr.String())
 }
 
 func TestGetFixedLengthRandomString(t *testing.T) {
 	require.Equal(t, 100, len(GetFixedLengthRandomString(100)))
 }
 
-func TestForPanicTrace(t *testing.T) {
-	defer func() {
-		if e := recover(); e != nil {
-			PanicTrace(4)
-			//os.Exit(1)
-		}
-	}()
-	panic("just for test")
+func mustAccAddressFromHex(addr string) sdk.AccAddress {
+	ret, err := sdk.AccAddressFromHex(addr)
+	if err != nil {
+		panic(err)
+	}
+	return ret
+}
+
+func TestCheckSignerAddress(t *testing.T) {
+	testcases := []struct {
+		signers    []sdk.AccAddress
+		delegators []sdk.AccAddress
+		result     bool
+	}{
+		{
+			signers: []sdk.AccAddress{
+				mustAccAddressFromHex("889Fb79ac5Ec9C1Ee86Db2D3f3857Dd3D4af0C2E"),
+			},
+			delegators: []sdk.AccAddress{
+				mustAccAddressFromHex("889Fb79ac5Ec9C1Ee86Db2D3f3857Dd3D4af0C2E"),
+			},
+			result: true,
+		},
+		{
+			signers: []sdk.AccAddress{
+				mustAccAddressFromHex("B2910E22Bb23D129C02d122B77B462ceB0E89Db9"),
+			},
+			delegators: []sdk.AccAddress{
+				mustAccAddressFromHex("889Fb79ac5Ec9C1Ee86Db2D3f3857Dd3D4af0C2E"),
+			},
+			result: false,
+		},
+		{
+			signers:    []sdk.AccAddress{},
+			delegators: []sdk.AccAddress{},
+			result:     false,
+		},
+		{
+			signers: []sdk.AccAddress{
+				mustAccAddressFromHex("889Fb79ac5Ec9C1Ee86Db2D3f3857Dd3D4af0C2E"),
+			},
+			delegators: []sdk.AccAddress{},
+			result:     false,
+		},
+		{
+			signers: []sdk.AccAddress{},
+			delegators: []sdk.AccAddress{
+				mustAccAddressFromHex("889Fb79ac5Ec9C1Ee86Db2D3f3857Dd3D4af0C2E"),
+			},
+			result: false,
+		},
+
+		{
+			signers: []sdk.AccAddress{
+				mustAccAddressFromHex("889Fb79ac5Ec9C1Ee86Db2D3f3857Dd3D4af0C2E"),
+				mustAccAddressFromHex("B2910E22Bb23D129C02d122B77B462ceB0E89Db9"),
+			},
+			delegators: []sdk.AccAddress{
+				mustAccAddressFromHex("889Fb79ac5Ec9C1Ee86Db2D3f3857Dd3D4af0C2E"),
+				mustAccAddressFromHex("B2910E22Bb23D129C02d122B77B462ceB0E89Db9"),
+			},
+			result: false,
+		},
+		{
+			signers: []sdk.AccAddress{
+				mustAccAddressFromHex("B2910E22Bb23D129C02d122B77B462ceB0E89Db9"),
+				mustAccAddressFromHex("889Fb79ac5Ec9C1Ee86Db2D3f3857Dd3D4af0C2E"),
+			},
+			delegators: []sdk.AccAddress{
+				mustAccAddressFromHex("889Fb79ac5Ec9C1Ee86Db2D3f3857Dd3D4af0C2E"),
+				mustAccAddressFromHex("B2910E22Bb23D129C02d122B77B462ceB0E89Db9"),
+			},
+			result: false,
+		},
+		{
+			signers: []sdk.AccAddress{
+				mustAccAddressFromHex("889Fb79ac5Ec9C1Ee86Db2D3f3857Dd3D4af0C2E"),
+				mustAccAddressFromHex("bbE4733d85bc2b90682147779DA49caB38C0aA1F"),
+			},
+			delegators: []sdk.AccAddress{
+				mustAccAddressFromHex("889Fb79ac5Ec9C1Ee86Db2D3f3857Dd3D4af0C2E"),
+				mustAccAddressFromHex("B2910E22Bb23D129C02d122B77B462ceB0E89Db9"),
+			},
+			result: false,
+		},
+		{
+			signers: []sdk.AccAddress{
+				mustAccAddressFromHex("c1fB47342851da0F7a6FD13866Ab37a2A125bE36"),
+				mustAccAddressFromHex("bbE4733d85bc2b90682147779DA49caB38C0aA1F"),
+			},
+			delegators: []sdk.AccAddress{
+				mustAccAddressFromHex("889Fb79ac5Ec9C1Ee86Db2D3f3857Dd3D4af0C2E"),
+				mustAccAddressFromHex("B2910E22Bb23D129C02d122B77B462ceB0E89Db9"),
+			},
+			result: false,
+		},
+	}
+
+	for _, ts := range testcases {
+		tr := CheckSignerAddress(ts.signers, ts.delegators)
+		require.Equal(t, ts.result, tr)
+	}
 }

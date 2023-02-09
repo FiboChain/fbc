@@ -3,12 +3,10 @@ package ante
 import (
 	sdk "github.com/FiboChain/fbc/libs/cosmos-sdk/types"
 	sdkerrors "github.com/FiboChain/fbc/libs/cosmos-sdk/types/errors"
-
-	"github.com/FiboChain/fbc/libs/tendermint/crypto"
-	"github.com/FiboChain/fbc/libs/tendermint/crypto/multisig"
-
 	"github.com/FiboChain/fbc/libs/cosmos-sdk/x/auth/keeper"
 	"github.com/FiboChain/fbc/libs/cosmos-sdk/x/auth/types"
+	"github.com/FiboChain/fbc/libs/tendermint/crypto"
+	"github.com/FiboChain/fbc/libs/tendermint/crypto/multisig"
 )
 
 var (

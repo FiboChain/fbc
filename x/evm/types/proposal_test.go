@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	ethcmn "github.com/ethereum/go-ethereum/common"
+	"github.com/FiboChain/fbc/libs/tendermint/types"
 	govtypes "github.com/FiboChain/fbc/x/gov/types"
 	"github.com/stretchr/testify/suite"
 )
@@ -19,27 +20,27 @@ const (
  Type:                	ManageContractDeploymentWhitelist
  IsAdded:				true
  DistributorAddrs:
-						ex1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqm2k6w2
-						ex1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqpxuz0nc`
+						fb1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqm2k6w2
+						fb1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqpxuz0nc`
 	expectedManageContractBlockedListProposalString = `ManageContractBlockedListProposal:
  Title:					default title
  Description:        	default description
  Type:                	ManageContractBlockedList
  IsAdded:				true
  ContractAddrs:
-						ex1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqm2k6w2
-						ex1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqpxuz0nc`
+						fb1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqm2k6w2
+						fb1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqpxuz0nc`
 	expectedManageContractMethodBlockedListProposalString = `ManageContractMethodBlockedListProposal:
  Title:					default title
  Description:        	default description
  Type:                	ManageContractMethodBlockedList
  IsAdded:				true
  ContractList:
-						Address: ex1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqm2k6w2
+						Address: fb1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqm2k6w2
 Method List:
 Sign: 0x11111111Extra: TEST1
 Sign: 0x22222222Extra: TEST2
-						Address: ex1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqpxuz0nc
+						Address: fb1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqpxuz0nc
 Method List:
 Sign: 0x33333333Extra: TEST3
 Sign: 0x44444444Extra: TEST4`
@@ -400,6 +401,150 @@ func (suite *ProposalTestSuite) TestProposal_ManageContractMethodBlockedListProp
 				suite.Require().Error(err)
 			} else {
 				suite.Require().NoError(err)
+			}
+		})
+	}
+}
+
+func (suite *ProposalTestSuite) TestProposal_ManageSysContractAddressProposal() {
+
+	const expectedManageSysContractAddressProposalString = `ManageSysContractAddressProposal:
+ Title:					default title
+ Description:        	default description
+ Type:                	ManageSysContractAddress
+ ContractAddr:          fb1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqm2k6w2
+ IsAdded:				true`
+
+	proposal := NewManageSysContractAddressProposal(
+		expectedTitle,
+		expectedDescription,
+		ethcmn.BytesToAddress([]byte{0x0}).Bytes(),
+		true,
+	)
+	types.UnittestOnlySetMilestoneVenus3Height(-1)
+	suite.Require().Equal(expectedTitle, proposal.GetTitle())
+	suite.Require().Equal(expectedDescription, proposal.GetDescription())
+	suite.Require().Equal(RouterKey, proposal.ProposalRoute())
+	suite.Require().Equal(proposalTypeManageSysContractAddress, proposal.ProposalType())
+	suite.Require().Equal(expectedManageSysContractAddressProposalString, proposal.String())
+
+	testCases := []struct {
+		msg           string
+		prepare       func()
+		expectedError bool
+	}{
+		{
+			"pass",
+			func() {
+			},
+			false,
+		},
+		{
+			"pass",
+			func() {
+				proposal.IsAdded = false
+				proposal.ContractAddr = nil
+			},
+			false,
+		},
+		{
+			"empty title",
+			func() {
+				proposal.Title = ""
+			},
+			true,
+		},
+		{
+			"overlong title",
+			func() {
+				for i := 0; i < govtypes.MaxTitleLength+1; i++ {
+					suite.strBuilder.WriteByte('a')
+				}
+				proposal.Title = suite.strBuilder.String()
+			},
+			true,
+		},
+		{
+			"empty description",
+			func() {
+				proposal.Description = ""
+				proposal.Title = expectedTitle
+			},
+			true,
+		},
+		{
+			"overlong description",
+			func() {
+				suite.strBuilder.Reset()
+				for i := 0; i < govtypes.MaxDescriptionLength+1; i++ {
+					suite.strBuilder.WriteByte('a')
+				}
+				proposal.Description = suite.strBuilder.String()
+			},
+			true,
+		},
+		{
+			"is_added true, contract address required",
+			func() {
+				proposal.IsAdded = true
+				proposal.ContractAddr = nil
+			},
+			true,
+		},
+	}
+
+	for _, tc := range testCases {
+		suite.Run(tc.msg, func() {
+			tc.prepare()
+
+			err := proposal.ValidateBasic()
+
+			if tc.expectedError {
+				suite.Require().Error(err)
+			} else {
+				suite.Require().NoError(err)
+			}
+		})
+	}
+}
+
+func (suite *ProposalTestSuite) TestFixShortAddr() {
+	testCases := []struct {
+		msg           string
+		shouldFix     bool
+		contractList  BlockedContractList
+		expectedFixed bool
+	}{
+		{
+			"pass after fix",
+			true,
+			[]BlockedContract{{Address: []byte{0x3}}},
+			true,
+		},
+		{
+			"not pass if not fix",
+			false,
+			[]BlockedContract{{Address: []byte{0x3}}},
+			false,
+		},
+	}
+	for _, tc := range testCases {
+		suite.Run(tc.msg, func() {
+
+			proposal := NewManageContractMethodBlockedListProposal(
+				"default title",
+				"default description",
+				tc.contractList,
+				true,
+			)
+			if tc.shouldFix {
+				proposal.FixShortAddr()
+			}
+
+			if tc.expectedFixed {
+				suite.Require().Equal(len(proposal.ContractList[0].Address), 20)
+			} else {
+				suite.Require().NotEqual(len(proposal.ContractList[0].Address), 20)
 			}
 		})
 	}

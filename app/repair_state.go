@@ -2,19 +2,20 @@ package app
 
 import (
 	"fmt"
-	"github.com/FiboChain/fbc/libs/tendermint/state/txindex"
 	"io"
-	"io/ioutil"
 	"log"
-	"os"
 	"path/filepath"
-
-	sdk "github.com/FiboChain/fbc/libs/cosmos-sdk/types"
 	"strings"
+	"time"
+
+	"github.com/FiboChain/fbc/app/config"
+	"github.com/FiboChain/fbc/app/utils/appstatus"
 
 	"github.com/FiboChain/fbc/libs/cosmos-sdk/server"
 	"github.com/FiboChain/fbc/libs/cosmos-sdk/store/flatkv"
+	mpttypes "github.com/FiboChain/fbc/libs/cosmos-sdk/store/mpt"
 	"github.com/FiboChain/fbc/libs/cosmos-sdk/store/rootmulti"
+	sdk "github.com/FiboChain/fbc/libs/cosmos-sdk/types"
 	"github.com/FiboChain/fbc/libs/iavl"
 	cfg "github.com/FiboChain/fbc/libs/tendermint/config"
 	"github.com/FiboChain/fbc/libs/tendermint/global"
@@ -23,11 +24,16 @@ import (
 	"github.com/FiboChain/fbc/libs/tendermint/node"
 	"github.com/FiboChain/fbc/libs/tendermint/proxy"
 	sm "github.com/FiboChain/fbc/libs/tendermint/state"
+	blockindex "github.com/FiboChain/fbc/libs/tendermint/state/indexer"
+	blockindexer "github.com/FiboChain/fbc/libs/tendermint/state/indexer/block/kv"
+	bloxkindexnull "github.com/FiboChain/fbc/libs/tendermint/state/indexer/block/null"
+	"github.com/FiboChain/fbc/libs/tendermint/state/txindex"
 	"github.com/FiboChain/fbc/libs/tendermint/state/txindex/kv"
 	"github.com/FiboChain/fbc/libs/tendermint/state/txindex/null"
 	"github.com/FiboChain/fbc/libs/tendermint/store"
 	"github.com/FiboChain/fbc/libs/tendermint/types"
 	dbm "github.com/FiboChain/fbc/libs/tm-db"
+	evmtypes "github.com/FiboChain/fbc/x/evm/types"
 	"github.com/spf13/viper"
 )
 
@@ -36,6 +42,7 @@ const (
 	blockStoreDB  = "blockstore"
 	stateDB       = "state"
 	txIndexDB     = "tx_index"
+	blockIndexDb  = "block_index"
 
 	FlagStartHeight       string = "start-height"
 	FlagEnableRepairState string = "enable-repair-state"
@@ -43,7 +50,7 @@ const (
 
 type repairApp struct {
 	db dbm.DB
-	*FBchainApp
+	*FBChainApp
 }
 
 func (app *repairApp) getLatestVersion() int64 {
@@ -58,18 +65,19 @@ func repairStateOnStart(ctx *server.Context) {
 	orgEnableFlatKV := viper.GetBool(flatkv.FlagEnable)
 	iavl.EnableAsyncCommit = false
 	viper.Set(flatkv.FlagEnable, false)
+	iavl.SetEnableFastStorage(appstatus.IsFastStorageStrategy())
+	iavl.SetForceReadIavl(true)
 
 	// repair state
 	RepairState(ctx, true)
 
 	//set original flag
+	iavl.SetForceReadIavl(false)
 	sm.SetIgnoreSmbCheck(orgIgnoreSmbCheck)
 	iavl.SetIgnoreVersionCheck(orgIgnoreVersionCheck)
 	iavl.EnableAsyncCommit = viper.GetBool(iavl.FlagIavlEnableAsyncCommit)
 	viper.Set(flatkv.FlagEnable, orgEnableFlatKV)
 	// load latest block height
-	dataDir := filepath.Join(ctx.Config.RootDir, "data")
-	rmLockByDir(dataDir)
 }
 
 func RepairState(ctx *server.Context, onStart bool) {
@@ -88,6 +96,7 @@ func RepairState(ctx *server.Context, onStart bool) {
 	// create proxy app
 	proxyApp, repairApp, err := createRepairApp(ctx)
 	panicError(err)
+	defer repairApp.Close()
 
 	// get async commit version
 	commitVersion, err := repairApp.GetCommitVersion()
@@ -100,8 +109,12 @@ func RepairState(ctx *server.Context, onStart bool) {
 	}
 
 	// load state
-	stateStoreDB, err := openDB(stateDB, dataDir)
+	stateStoreDB, err := sdk.NewDB(stateDB, dataDir)
 	panicError(err)
+	defer func() {
+		err := stateStoreDB.Close()
+		panicError(err)
+	}()
 	genesisDocProvider := node.DefaultGenesisDocProviderFunc(ctx.Config)
 	state, _, err := node.LoadStateFromDBOrGenesisDocProvider(stateStoreDB, genesisDocProvider)
 	panicError(err)
@@ -112,24 +125,36 @@ func RepairState(ctx *server.Context, onStart bool) {
 		if onStart {
 			startVersion = commitVersion
 		} else {
+			if types.HigherThanMars(commitVersion) {
+				lastMptVersion := int64(repairApp.EvmKeeper.GetLatestStoredBlockHeight())
+				if lastMptVersion < commitVersion {
+					commitVersion = lastMptVersion
+				}
+			}
 			startVersion = commitVersion - 2 // case: state machine broken
 		}
 	}
 	if startVersion <= 0 {
 		panic("height too low, please restart from height 0 with genesis file")
 	}
+	log.Println(fmt.Sprintf("repair state at version = %d", startVersion))
 
 	err = repairApp.LoadStartVersion(startVersion)
 	panicError(err)
 
+	rawTrieDirtyDisabledFlag := viper.GetBool(mpttypes.FlagTrieDirtyDisabled)
+	mpttypes.TrieDirtyDisabled = true
+	repairApp.EvmKeeper.SetTargetMptVersion(startVersion)
+
 	// repair data by apply the latest two blocks
 	doRepair(ctx, state, stateStoreDB, proxyApp, startVersion, latestBlockHeight, dataDir)
-}
 
+	mpttypes.TrieDirtyDisabled = rawTrieDirtyDisabledFlag
+}
 func createRepairApp(ctx *server.Context) (proxy.AppConns, *repairApp, error) {
 	rootDir := ctx.Config.RootDir
 	dataDir := filepath.Join(rootDir, "data")
-	db, err := openDB(applicationDB, dataDir)
+	db, err := sdk.NewDB(applicationDB, dataDir)
 	panicError(err)
 	repairApp := newRepairApp(ctx.Logger, db, nil)
 
@@ -140,7 +165,7 @@ func createRepairApp(ctx *server.Context) (proxy.AppConns, *repairApp, error) {
 }
 
 func newRepairApp(logger tmlog.Logger, db dbm.DB, traceStore io.Writer) *repairApp {
-	return &repairApp{db, NewFBchainApp(
+	return &repairApp{db, NewFBChainApp(
 		logger,
 		db,
 		traceStore,
@@ -153,32 +178,38 @@ func newRepairApp(logger tmlog.Logger, db dbm.DB, traceStore io.Writer) *repairA
 func doRepair(ctx *server.Context, state sm.State, stateStoreDB dbm.DB,
 	proxyApp proxy.AppConns, startHeight, latestHeight int64, dataDir string) {
 	stateCopy := state.Copy()
+	config.RegisterDynamicConfig(ctx.Logger.With("module", "config"))
 	ctx.Logger.Debug("stateCopy", "state", fmt.Sprintf("%+v", stateCopy))
 	// construct state for repair
 	state = constructStartState(state, stateStoreDB, startHeight)
 	ctx.Logger.Debug("constructStartState", "state", fmt.Sprintf("%+v", state))
-	var err error
 	// repair state
 	eventBus := types.NewEventBus()
-	err = startEventBusAndIndexerService(ctx.Config, eventBus, ctx.Logger)
+	txStore, txindexServer, err := startEventBusAndIndexerService(ctx.Config, eventBus, ctx.Logger)
 	panicError(err)
+	defer func() {
+		if txindexServer != nil && txindexServer.IsRunning() {
+			txindexServer.Stop()
+			txindexServer.Wait()
+		}
+		if eventBus != nil && eventBus.IsRunning() {
+			eventBus.Stop()
+			eventBus.Wait()
+		}
+		if txStore != nil {
+			err := txStore.Close()
+			panicError(err)
+		}
+	}()
 	blockExec := sm.NewBlockExecutor(stateStoreDB, ctx.Logger, proxyApp.Consensus(), mock.Mempool{}, sm.MockEvidencePool{})
-	blockExec.SetIsAsyncDeliverTx(viper.GetBool(sm.FlagParalleledTx))
 	blockExec.SetEventBus(eventBus)
+	// Save state synchronously during repair state
+	blockExec.SetIsAsyncSaveDB(false)
 	global.SetGlobalHeight(startHeight + 1)
 	for height := startHeight + 1; height <= latestHeight; height++ {
 		repairBlock, repairBlockMeta := loadBlock(height, dataDir)
-		state, _, err = blockExec.ApplyBlock(state, repairBlockMeta.BlockID, repairBlock)
+		state, _, err = blockExec.ApplyBlockWithTrace(state, repairBlockMeta.BlockID, repairBlock)
 		panicError(err)
-		// use stateCopy to correct the repaired state
-		if state.LastBlockHeight == stateCopy.LastBlockHeight {
-			state.LastHeightConsensusParamsChanged = stateCopy.LastHeightConsensusParamsChanged
-			state.LastHeightValidatorsChanged = stateCopy.LastHeightValidatorsChanged
-			state.LastValidators = stateCopy.LastValidators.Copy()
-			state.Validators = stateCopy.Validators.Copy()
-			state.NextValidators = stateCopy.NextValidators.Copy()
-			sm.SaveState(stateStoreDB, state)
-		}
 		ctx.Logger.Debug("repairedState", "state", fmt.Sprintf("%+v", state))
 		res, err := proxyApp.Query().InfoSync(proxy.RequestInfo)
 		panicError(err)
@@ -189,37 +220,51 @@ func doRepair(ctx *server.Context, state sm.State, stateStoreDB dbm.DB,
 	}
 }
 
-func startEventBusAndIndexerService(config *cfg.Config, eventBus *types.EventBus, logger tmlog.Logger) error {
+func startEventBusAndIndexerService(config *cfg.Config, eventBus *types.EventBus, logger tmlog.Logger) (txStore dbm.DB, indexerService *txindex.IndexerService, err error) {
 	eventBus.SetLogger(logger.With("module", "events"))
 	if err := eventBus.Start(); err != nil {
-		return err
+		return nil, nil, err
 	}
 	// Transaction indexing
 	var txIndexer txindex.TxIndexer
+	var blockIndexer blockindex.BlockIndexer
 	switch config.TxIndex.Indexer {
 	case "kv":
-		store, err := openDB(txIndexDB, filepath.Join(config.RootDir, "data"))
+		txStore, err = sdk.NewDB(txIndexDB, filepath.Join(config.RootDir, "data"))
 		if err != nil {
-			return err
+			return nil, nil, err
+		}
+		blockIndexStore, err := sdk.NewDB(blockIndexDb, filepath.Join(config.RootDir, "data"))
+		if err != nil {
+			return nil, nil, err
 		}
 		switch {
 		case config.TxIndex.IndexKeys != "":
-			txIndexer = kv.NewTxIndex(store, kv.IndexEvents(splitAndTrimEmpty(config.TxIndex.IndexKeys, ",", " ")))
+			txIndexer = kv.NewTxIndex(txStore, kv.IndexEvents(splitAndTrimEmpty(config.TxIndex.IndexKeys, ",", " ")))
 		case config.TxIndex.IndexAllKeys:
-			txIndexer = kv.NewTxIndex(store, kv.IndexAllEvents())
+			txIndexer = kv.NewTxIndex(txStore, kv.IndexAllEvents())
 		default:
-			txIndexer = kv.NewTxIndex(store)
+			txIndexer = kv.NewTxIndex(txStore)
 		}
+		blockIndexer = blockindexer.New(dbm.NewPrefixDB(blockIndexStore, []byte("block_events")))
 	default:
 		txIndexer = &null.TxIndex{}
+		blockIndexer = &bloxkindexnull.BlockerIndexer{}
 	}
 
-	indexerService := txindex.NewIndexerService(txIndexer, eventBus)
+	indexerService = txindex.NewIndexerService(txIndexer, blockIndexer, eventBus)
 	indexerService.SetLogger(logger.With("module", "txindex"))
 	if err := indexerService.Start(); err != nil {
-		return err
+		if eventBus != nil {
+			eventBus.Stop()
+		}
+		if txStore != nil {
+			txStore.Close()
+		}
+
+		return nil, nil, err
 	}
-	return nil
+	return txStore, indexerService, nil
 }
 
 // splitAndTrimEmpty slices s into all subslices separated by sep and returns a
@@ -245,12 +290,12 @@ func splitAndTrimEmpty(s, sep, cutset string) []string {
 
 func constructStartState(state sm.State, stateStoreDB dbm.DB, startHeight int64) sm.State {
 	stateCopy := state.Copy()
-	validators, err := sm.LoadValidators(stateStoreDB, startHeight)
-	lastValidators, err := sm.LoadValidators(stateStoreDB, startHeight-1)
+	validators, lastStoredHeight, err := sm.LoadValidatorsWithStoredHeight(stateStoreDB, startHeight+1)
+	lastValidators, err := sm.LoadValidators(stateStoreDB, startHeight)
 	if err != nil {
 		return stateCopy
 	}
-	nextValidators, err := sm.LoadValidators(stateStoreDB, startHeight+1)
+	nextValidators, err := sm.LoadValidators(stateStoreDB, startHeight+2)
 	if err != nil {
 		return stateCopy
 	}
@@ -263,11 +308,12 @@ func constructStartState(state sm.State, stateStoreDB dbm.DB, startHeight int64)
 	stateCopy.NextValidators = nextValidators
 	stateCopy.ConsensusParams = consensusParams
 	stateCopy.LastBlockHeight = startHeight
+	stateCopy.LastHeightValidatorsChanged = lastStoredHeight
 	return stateCopy
 }
 
 func loadBlock(height int64, dataDir string) (*types.Block, *types.BlockMeta) {
-	storeDB, err := openDB(blockStoreDB, dataDir)
+	storeDB, err := sdk.NewDB(blockStoreDB, dataDir)
 	defer storeDB.Close()
 	blockStore := store.NewBlockStore(storeDB)
 	panicError(err)
@@ -277,20 +323,11 @@ func loadBlock(height int64, dataDir string) (*types.Block, *types.BlockMeta) {
 }
 
 func latestBlockHeight(dataDir string) int64 {
-	storeDB, err := openDB(blockStoreDB, dataDir)
+	storeDB, err := sdk.NewDB(blockStoreDB, dataDir)
 	panicError(err)
 	defer storeDB.Close()
 	blockStore := store.NewBlockStore(storeDB)
 	return blockStore.Height()
-}
-
-func rmLockByDir(dataDir string) {
-	files, _ := ioutil.ReadDir(dataDir)
-	for _, f := range files {
-		if f.IsDir() {
-			os.Remove(filepath.Join(dataDir, f.Name(), "LOCK"))
-		}
-	}
 }
 
 // panic if error is not nil
@@ -300,14 +337,22 @@ func panicError(err error) {
 	}
 }
 
-func openDB(dbName string, dataDir string) (db dbm.DB, err error) {
-	return sdk.NewLevelDB(dbName, dataDir)
-}
-
 func createAndStartProxyAppConns(clientCreator proxy.ClientCreator) (proxy.AppConns, error) {
 	proxyApp := proxy.NewAppConns(clientCreator)
 	if err := proxyApp.Start(); err != nil {
 		return nil, fmt.Errorf("error starting proxy app connections: %v", err)
 	}
 	return proxyApp, nil
+}
+
+func (app *repairApp) Close() {
+	indexer := evmtypes.GetIndexer()
+	if indexer != nil {
+		for indexer.IsProcessing() {
+			time.Sleep(100 * time.Millisecond)
+		}
+	}
+	evmtypes.CloseIndexer()
+	err := app.db.Close()
+	panicError(err)
 }

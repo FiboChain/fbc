@@ -8,8 +8,8 @@ import (
 	"github.com/FiboChain/fbc/libs/tendermint/crypto"
 	"github.com/FiboChain/fbc/libs/tendermint/crypto/ed25519"
 	"github.com/FiboChain/fbc/libs/tendermint/libs/log"
-	"github.com/stretchr/testify/require"
 	dbm "github.com/FiboChain/fbc/libs/tm-db"
+	"github.com/stretchr/testify/require"
 
 	bam "github.com/FiboChain/fbc/libs/cosmos-sdk/baseapp"
 	"github.com/FiboChain/fbc/libs/cosmos-sdk/codec"
@@ -131,7 +131,7 @@ func SignCheckDeliver(
 	require.Nil(t, err)
 
 	// Must simulate now as CheckTx doesn't run Msgs anymore
-	_, res, err := app.Simulate(txBytes, tx, 0)
+	_, res, err := app.Simulate(txBytes, tx, 0, nil)
 
 	if expSimPass {
 		require.NoError(t, err)
@@ -162,8 +162,8 @@ func SignCheckDeliver(
 // GenSequenceOfTxs generates a set of signed transactions of messages, such
 // that they differ only by having the sequence numbers incremented between
 // every transaction.
-func GenSequenceOfTxs(msgs []sdk.Msg, accNums []uint64, initSeqNums []uint64, numToGenerate int, priv ...crypto.PrivKey) []auth.StdTx {
-	txs := make([]auth.StdTx, numToGenerate)
+func GenSequenceOfTxs(msgs []sdk.Msg, accNums []uint64, initSeqNums []uint64, numToGenerate int, priv ...crypto.PrivKey) []*auth.StdTx {
+	txs := make([]*auth.StdTx, numToGenerate)
 	for i := 0; i < numToGenerate; i++ {
 		txs[i] = helpers.GenTx(
 			msgs,

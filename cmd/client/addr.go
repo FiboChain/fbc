@@ -3,6 +3,7 @@ package client
 import (
 	"encoding/hex"
 	"fmt"
+	"github.com/FiboChain/fbc/libs/system"
 	"strings"
 
 	sdk "github.com/FiboChain/fbc/libs/cosmos-sdk/types"
@@ -17,14 +18,14 @@ const (
 
 type accAddrToPrefixFunc func(sdk.AccAddress, string) string
 
-// AddrCommands registers a sub-tree of commands to interact with oec address
+// AddrCommands registers a sub-tree of commands to interact with chain address
 func AddrCommands() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "addr",
-		Short: "opreate all kind of address in the FBC network",
-		Long: ` Address is a identification for join in the FBC network.
+		Short: "opreate all kind of address in the "+system.ChainName+" network",
+		Long: ` Address is a identification for join in the `+system.ChainName+` network.
 
-	The address in FBC network begins with "fbchain","fb" or "0x"`,
+	The address in `+system.ChainName+` network begins with "ex" or "0x"`,
 	}
 	cmd.AddCommand(convertCommand())
 	return cmd
@@ -34,8 +35,8 @@ func AddrCommands() *cobra.Command {
 func convertCommand() *cobra.Command {
 	return &cobra.Command{
 		Use:   "convert [sourceAddr]",
-		Short: "convert source address to all kind of address in the FBC network",
-		Long: `sourceAddr must be begin with "fbchain","fb" or "0x".
+		Short: "convert source address to all kind of address in the "+system.ChainName+" network",
+		Long: `sourceAddr must be begin with "fbchain","ex" or "0x".
 	
 	When input one of these address, we will convert to the other kinds.`,
 		Args: cobra.ExactArgs(1),
@@ -51,7 +52,7 @@ func convertCommand() *cobra.Command {
 				rawPrefix:  hexFromAccAddr,
 			}
 
-			// prefix is "fbchain","fb" or "0x"
+			// prefix is "fbchain","ex" or "0x"
 			// convert srcAddr to accAddr
 			var accAddr sdk.AccAddress
 			var err error

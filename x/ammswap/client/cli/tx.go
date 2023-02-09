@@ -170,7 +170,7 @@ func getCmdCreateExchange(cdc *codec.Codec) *cobra.Command {
 			fmt.Sprintf(`create token pair.
 
 Example:
-$ fbchaincli tx swap create-pair --token0 eth-355 --token1 btc-366 --fees 0.01fibo 
+$ fbchaincli tx swap create-pair --token0 eth-355 --token1 btc-366 --fees 0.01okt 
 
 `),
 		),

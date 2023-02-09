@@ -25,8 +25,14 @@ type SupplyKeeper interface {
 type Subspace interface {
 	GetParamSet(ctx sdk.Context, ps params.ParamSet)
 	SetParamSet(ctx sdk.Context, ps params.ParamSet)
+	CustomKVStore(ctx sdk.Context) sdk.KVStore
 }
 
 type BankKeeper interface {
 	BlacklistedAddr(addr sdk.AccAddress) bool
+}
+
+// StakingKeeper for validator verify
+type StakingKeeper interface {
+	IsValidator(ctx sdk.Context, addr sdk.AccAddress) bool
 }

@@ -19,7 +19,13 @@ var _ govtypes.Content = CommunityPoolSpendProposal{}
 
 func init() {
 	govtypes.RegisterProposalType(ProposalTypeCommunityPoolSpend)
-	govtypes.RegisterProposalTypeCodec(CommunityPoolSpendProposal{}, "fbchain/distribution/CommunityPoolSpendProposal")
+	govtypes.RegisterProposalType(ProposalTypeChangeDistributionType)
+	govtypes.RegisterProposalType(ProposalTypeWithdrawRewardEnabled)
+	govtypes.RegisterProposalType(ProposalTypeRewardTruncatePrecision)
+	govtypes.RegisterProposalTypeCodec(CommunityPoolSpendProposal{}, "fibochain/distribution/CommunityPoolSpendProposal")
+	govtypes.RegisterProposalTypeCodec(ChangeDistributionTypeProposal{}, "fibochain/distribution/ChangeDistributionTypeProposal")
+	govtypes.RegisterProposalTypeCodec(WithdrawRewardEnabledProposal{}, "fibochain/distribution/WithdrawRewardEnabledProposal")
+	govtypes.RegisterProposalTypeCodec(RewardTruncatePrecisionProposal{}, "fibochain/distribution/RewardTruncatePrecisionProposal")
 }
 
 // CommunityPoolSpendProposal spends from the community pool

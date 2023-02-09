@@ -156,7 +156,9 @@ func NewCoins(coins ...Coin) Coins {
 		return Coins{}
 	}
 
-	newCoins.Sort()
+	if len(newCoins) > 1 {
+		newCoins.Sort()
+	}
 
 	// detect duplicate Denoms
 	if dupIndex := findDup(newCoins); dupIndex != -1 {
@@ -558,18 +560,24 @@ func (coins Coins) IsAnyGTE(coinsB Coins) bool {
 
 // removeZeroCoins removes all zero coins from the given coin set in-place.
 func removeZeroCoins(coins Coins) Coins {
-	i, l := 0, len(coins)
-	for i < l {
+	for i := 0; i < len(coins); i++ {
 		if coins[i].IsZero() {
-			// remove coin
-			coins = append(coins[:i], coins[i+1:]...)
-			l--
-		} else {
-			i++
+			break
+		} else if i == len(coins)-1 {
+			return coins
 		}
 	}
+	var result []Coin
+	if len(coins) > 0 {
+		result = make([]Coin, 0, len(coins)-1)
+	}
 
-	return coins[:i]
+	for _, coin := range coins {
+		if !coin.IsZero() {
+			result = append(result, coin)
+		}
+	}
+	return result
 }
 
 //-----------------------------------------------------------------------------
@@ -599,6 +607,8 @@ var (
 	reSpc  = `[[:space:]]*`
 	reDnm  *regexp.Regexp
 	reCoin *regexp.Regexp
+
+	//ibcReDnm       *regexp.Regexp
 	//reDecCoin   *regexp.Regexp
 )
 
@@ -621,7 +631,6 @@ func SetCoinDenomRegex(reFn func() string) {
 
 	reDnm = regexp.MustCompile(fmt.Sprintf(`^%s$`, coinDenomRegex()))
 	reCoin = regexp.MustCompile(fmt.Sprintf(`^(%s)%s(%s)$`, reAmt, reSpc, coinDenomRegex()))
-	//reDecCoin = regexp.MustCompile(fmt.Sprintf(`^(%s)%s(%s)$`, reDecAmt, reSpc, coinDenomRegex()))
 }
 
 // ValidateDenom validates a denomination string returning an error if it is

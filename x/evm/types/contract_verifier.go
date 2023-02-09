@@ -12,23 +12,27 @@ import (
 // ContractVerifier which verify contract method whether blocked
 type ContractVerifier struct {
 	params Params
+	hook   *GuFactorHook
 }
 
 // NewContractVerifier return a point of ContractVerifier
 func NewContractVerifier(params Params) *ContractVerifier {
-	return &ContractVerifier{params: params}
+	return &ContractVerifier{params: params, hook: &GuFactorHook{}}
 }
 
 // Verify check the contract whether is blocked.
-// It never return error,because in oec chain if it blocked, not allow to execute next opCode.In Ethereum call failed,the call err is deal in contract code ether evm.
+// It never return error,because in this chain if it blocked, not allow to execute next opCode.In Ethereum call failed,the call err is deal in contract code ether evm.
 // If current call/delegatecall/callcode contract method is blocked,it will be panic,then it's deal logic at defer{recover}.
 // If contract all method blocked,it will not be panic in Verify. it will be panic in stateDb.GetCode().
 func (cv ContractVerifier) Verify(stateDB vm.StateDB, op vm.OpCode, from, to common.Address, input []byte, value *big.Int) error {
 	csdb, ok := stateDB.(*CommitStateDB)
-	//If stateDB is not oec stateDB ,then return error
+	//If stateDB is not native stateDB ,then return error
 	if !ok {
 		panic(ErrContractBlockedVerify{"unknown stateDB expected CommitStateDB"})
 	}
+
+	cv.hook.UpdateGuFactor(csdb, op, from, to, input, value)
+
 	//check whether contract has been blocked
 	if !cv.params.EnableContractBlockedList {
 		return nil

@@ -1,15 +1,14 @@
 package config
 
 import (
+	"github.com/FiboChain/fbc/libs/system/trace"
 	"path"
 
 	"github.com/FiboChain/fbc/libs/cosmos-sdk/server"
 
-	"github.com/FiboChain/fbc/x/common/analyzer"
-
+	"github.com/mosn/holmes"
 	"github.com/FiboChain/fbc/libs/tendermint/libs/cli"
 	tmos "github.com/FiboChain/fbc/libs/tendermint/libs/os"
-	"github.com/mosn/holmes"
 	"github.com/spf13/viper"
 )
 
@@ -50,7 +49,7 @@ func PprofDownload(context *server.Context) {
 	}
 
 	// auto download pprof by analyzer
-	analyzer.InitializePprofDumper(context.Logger, c.dumpPath, c.coolDown, c.triggerAbciElapsed)
+	trace.InitializePprofDumper(context.Logger, c.dumpPath, c.coolDown, c.triggerAbciElapsed)
 
 	// auto download pprof by holmes
 	h, err := holmes.New(

@@ -3,9 +3,11 @@ package state
 import (
 	"encoding/hex"
 	"fmt"
-	"github.com/FiboChain/fbc/libs/tendermint/libs/automation"
-	"github.com/FiboChain/fbc/libs/tendermint/trace"
+	"time"
 
+	"github.com/FiboChain/fbc/libs/system/trace"
+	cfg "github.com/FiboChain/fbc/libs/tendermint/config"
+	"github.com/FiboChain/fbc/libs/tendermint/libs/automation"
 	"github.com/FiboChain/fbc/libs/tendermint/libs/log"
 	"github.com/FiboChain/fbc/libs/tendermint/proxy"
 	"github.com/FiboChain/fbc/libs/tendermint/types"
@@ -14,6 +16,7 @@ import (
 
 type executionResult struct {
 	res *ABCIResponses
+	duration time.Duration
 	err error
 }
 
@@ -28,7 +31,6 @@ type executionTask struct {
 	db             dbm.DB
 	logger         log.Logger
 	blockHash      string
-	isParalleledTx bool
 }
 
 func newExecutionTask(blockExec *BlockExecutor, block *types.Block, index int64) *executionTask {
@@ -40,7 +42,6 @@ func newExecutionTask(blockExec *BlockExecutor, block *types.Block, index int64)
 		logger:         blockExec.logger,
 		taskResultChan: blockExec.prerunCtx.taskResultChan,
 		index:          index,
-		isParalleledTx: blockExec.isAsync,
 	}
 	ret.blockHash = hex.EncodeToString(block.Hash())
 
@@ -68,22 +69,27 @@ func (t *executionTask) stop() {
 
 func (t *executionTask) run() {
 	t.dump("Start prerun")
-	trc := trace.NewTracer(fmt.Sprintf("num<%d>, lastRun", t.index))
 
 	var abciResponses *ABCIResponses
 	var err error
 
-	if t.isParalleledTx {
+	t0 := time.Now()
+	mode := DeliverTxsExecMode(cfg.DynamicConfig.GetDeliverTxsExecuteMode())
+	switch mode {
+	case DeliverTxsExecModeSerial:
+		abciResponses, err = execBlockOnProxyApp(t)
+	case DeliverTxsExecModeParallel:
 		abciResponses, err = execBlockOnProxyAppAsync(t.logger, t.proxyApp, t.block, t.db)
-	} else {
+	default:
 		abciResponses, err = execBlockOnProxyApp(t)
 	}
+	duration := time.Now().Sub(t0)
 
 	if !t.stopped {
 		t.result = &executionResult{
-			abciResponses, err,
+			abciResponses, duration,err,
 		}
-		trace.GetElapsedInfo().AddInfo(trace.Prerun, trc.Format())
+		trace.GetElapsedInfo().AddInfo(trace.Prerun, fmt.Sprintf("%d", t.index))
 	}
 	automation.PrerunTimeOut(t.block.Height, int(t.index)-1)
 	t.dump("Prerun completed")

@@ -3,6 +3,12 @@ package gov
 import (
 	"testing"
 
+	fibochaincodec "github.com/FiboChain/fbc/app/codec"
+	interfacetypes "github.com/FiboChain/fbc/libs/cosmos-sdk/codec/types"
+	"github.com/FiboChain/fbc/libs/cosmos-sdk/types/module"
+	ibctransfer "github.com/FiboChain/fbc/libs/ibc-go/modules/apps/transfer"
+	ibc "github.com/FiboChain/fbc/libs/ibc-go/modules/core"
+
 	"github.com/FiboChain/fbc/libs/cosmos-sdk/client/context"
 	cliLcd "github.com/FiboChain/fbc/libs/cosmos-sdk/client/lcd"
 	"github.com/FiboChain/fbc/libs/cosmos-sdk/codec"
@@ -19,7 +25,7 @@ func TestAppModule_BeginBlock(t *testing.T) {
 
 }
 
-func getCmdSubmitProposal(cdc *codec.Codec) *cobra.Command {
+func getCmdSubmitProposal(proxy *codec.CodecProxy, reg interfacetypes.InterfaceRegistry) *cobra.Command {
 	return &cobra.Command{}
 }
 
@@ -38,6 +44,15 @@ func TestNewAppModuleBasic(t *testing.T) {
 	require.Equal(t, types.ModuleName, moduleBasic.Name())
 
 	cdc := codec.New()
+	ModuleBasics := module.NewBasicManager(
+		ibc.AppModuleBasic{},
+		ibctransfer.AppModuleBasic{},
+	)
+	//cdc := fibochaincodec.MakeCodec(ModuleBasics)
+	interfaceReg := fibochaincodec.MakeIBC(ModuleBasics)
+	protoCodec := codec.NewProtoCodec(interfaceReg)
+	codecProxy := codec.NewCodecProxy(protoCodec, cdc)
+
 	moduleBasic.RegisterCodec(cdc)
 	bz, err := cdc.MarshalBinaryBare(types.MsgSubmitProposal{})
 	require.NotNil(t, bz)
@@ -49,7 +64,7 @@ func TestNewAppModuleBasic(t *testing.T) {
 	err = moduleBasic.ValidateGenesis(jsonMsg[:len(jsonMsg)-1])
 	require.NotNil(t, err)
 
-	rs := cliLcd.NewRestServer(cdc, nil)
+	rs := cliLcd.NewRestServer(codecProxy, interfaceReg, nil)
 	moduleBasic.RegisterRESTRoutes(rs.CliCtx, rs.Mux)
 
 	// todo: check diff after GetTxCmd

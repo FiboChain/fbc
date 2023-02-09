@@ -18,6 +18,11 @@ import (
 	"github.com/FiboChain/fbc/libs/cosmos-sdk/x/supply"
 )
 
+const (
+	fooDenom = "foo"
+	barDenom = "bar"
+)
+
 func TestKeeper(t *testing.T) {
 	app, ctx := createTestApp(false)
 
@@ -339,7 +344,7 @@ func TestViewKeeper(t *testing.T) {
 func TestVestingAccountSend(t *testing.T) {
 	app, ctx := createTestApp(false)
 	now := tmtime.Now()
-	ctx = ctx.WithBlockHeader(abci.Header{Time: now})
+	ctx.SetBlockHeader(abci.Header{Time: now})
 	endTime := now.Add(24 * time.Hour)
 
 	origCoins := sdk.NewCoins(sdk.NewInt64Coin("stake", 100))
@@ -361,7 +366,7 @@ func TestVestingAccountSend(t *testing.T) {
 	app.AccountKeeper.SetAccount(ctx, vacc)
 
 	// require that all vested coins are spendable plus any received
-	ctx = ctx.WithBlockTime(now.Add(12 * time.Hour))
+	ctx.SetBlockTime(now.Add(12 * time.Hour))
 	err = app.BankKeeper.SendCoins(ctx, addr1, addr2, sendCoins)
 	vacc = app.AccountKeeper.GetAccount(ctx, addr1).(*vesting.ContinuousVestingAccount)
 	require.NoError(t, err)
@@ -371,7 +376,7 @@ func TestVestingAccountSend(t *testing.T) {
 func TestPeriodicVestingAccountSend(t *testing.T) {
 	app, ctx := createTestApp(false)
 	now := tmtime.Now()
-	ctx = ctx.WithBlockHeader(abci.Header{Time: now})
+	ctx.SetBlockHeader(abci.Header{Time: now})
 	origCoins := sdk.NewCoins(sdk.NewInt64Coin("stake", 100))
 	sendCoins := sdk.NewCoins(sdk.NewInt64Coin("stake", 50))
 
@@ -396,7 +401,7 @@ func TestPeriodicVestingAccountSend(t *testing.T) {
 	app.AccountKeeper.SetAccount(ctx, vacc)
 
 	// require that all vested coins are spendable plus any received
-	ctx = ctx.WithBlockTime(now.Add(12 * time.Hour))
+	ctx.SetBlockTime(now.Add(12 * time.Hour))
 	err = app.BankKeeper.SendCoins(ctx, addr1, addr2, sendCoins)
 	vacc = app.AccountKeeper.GetAccount(ctx, addr1).(*vesting.PeriodicVestingAccount)
 	require.NoError(t, err)
@@ -406,7 +411,7 @@ func TestPeriodicVestingAccountSend(t *testing.T) {
 func TestVestingAccountReceive(t *testing.T) {
 	app, ctx := createTestApp(false)
 	now := tmtime.Now()
-	ctx = ctx.WithBlockHeader(abci.Header{Time: now})
+	ctx.SetBlockHeader(abci.Header{Time: now})
 	endTime := now.Add(24 * time.Hour)
 
 	origCoins := sdk.NewCoins(sdk.NewInt64Coin("stake", 100))
@@ -438,7 +443,7 @@ func TestVestingAccountReceive(t *testing.T) {
 func TestPeriodicVestingAccountReceive(t *testing.T) {
 	app, ctx := createTestApp(false)
 	now := tmtime.Now()
-	ctx = ctx.WithBlockHeader(abci.Header{Time: now})
+	ctx.SetBlockHeader(abci.Header{Time: now})
 
 	origCoins := sdk.NewCoins(sdk.NewInt64Coin("stake", 100))
 	sendCoins := sdk.NewCoins(sdk.NewInt64Coin("stake", 50))
@@ -474,7 +479,7 @@ func TestPeriodicVestingAccountReceive(t *testing.T) {
 func TestDelegateCoins(t *testing.T) {
 	app, ctx := createTestApp(false)
 	now := tmtime.Now()
-	ctx = ctx.WithBlockHeader(abci.Header{Time: now})
+	ctx.SetBlockHeader(abci.Header{Time: now})
 	endTime := now.Add(24 * time.Hour)
 	ak := app.AccountKeeper
 
@@ -495,7 +500,7 @@ func TestDelegateCoins(t *testing.T) {
 	ak.SetAccount(ctx, macc)
 	app.BankKeeper.SetCoins(ctx, addr2, origCoins)
 
-	ctx = ctx.WithBlockTime(now.Add(12 * time.Hour))
+	ctx.SetBlockTime(now.Add(12 * time.Hour))
 
 	// require the ability for a non-vesting account to delegate
 	err := app.BankKeeper.DelegateCoins(ctx, addr2, addrModule, delCoins)
@@ -515,7 +520,7 @@ func TestDelegateCoins(t *testing.T) {
 func TestUndelegateCoins(t *testing.T) {
 	app, ctx := createTestApp(false)
 	now := tmtime.Now()
-	ctx = ctx.WithBlockHeader(abci.Header{Time: now})
+	ctx.SetBlockHeader(abci.Header{Time: now})
 	endTime := now.Add(24 * time.Hour)
 	ak := app.AccountKeeper
 
@@ -536,7 +541,7 @@ func TestUndelegateCoins(t *testing.T) {
 	ak.SetAccount(ctx, macc)
 	app.BankKeeper.SetCoins(ctx, addr2, origCoins)
 
-	ctx = ctx.WithBlockTime(now.Add(12 * time.Hour))
+	ctx.SetBlockTime(now.Add(12 * time.Hour))
 
 	// require the ability for a non-vesting account to delegate
 	err := app.BankKeeper.DelegateCoins(ctx, addr2, addrModule, delCoins)
@@ -573,4 +578,33 @@ func TestUndelegateCoins(t *testing.T) {
 	macc = ak.GetAccount(ctx, addrModule)
 	require.Equal(t, origCoins, vacc.GetCoins())
 	require.True(t, macc.GetCoins().Empty())
+}
+
+func newFooCoin(amt int64) sdk.Coin {
+	return sdk.NewInt64Coin(fooDenom, amt)
+}
+
+func newBarCoin(amt int64) sdk.Coin {
+	return sdk.NewInt64Coin(barDenom, amt)
+}
+
+func TestUndelegateCoins_Invalid(t *testing.T) {
+	app, ctx := createTestApp(false)
+	now := tmtime.Now()
+	ctx.SetBlockHeader(abci.Header{Time: now})
+	delCoins := sdk.NewCoins(newFooCoin(50))
+
+	addr1 := sdk.AccAddress([]byte("addr1_______________"))
+	addrModule := sdk.AccAddress([]byte("moduleAcc___________"))
+	macc := app.AccountKeeper.NewAccountWithAddress(ctx, addrModule) // we don't need to define an actual module account bc we just need the address for testing
+	acc := app.AccountKeeper.NewAccountWithAddress(ctx, addr1)
+
+	require.Error(t, app.BankKeeper.UndelegateCoins(ctx, addrModule, addr1, delCoins))
+
+	app.AccountKeeper.SetAccount(ctx, macc)
+
+	require.Error(t, app.BankKeeper.UndelegateCoins(ctx, addrModule, addr1, delCoins))
+	app.AccountKeeper.SetAccount(ctx, acc)
+
+	require.Error(t, app.BankKeeper.UndelegateCoins(ctx, addrModule, addr1, delCoins))
 }

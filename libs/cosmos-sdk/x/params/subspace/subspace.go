@@ -1,6 +1,7 @@
 package subspace
 
 import (
+	"bytes"
 	"fmt"
 	"reflect"
 	"strconv"
@@ -12,7 +13,6 @@ import (
 	"github.com/FiboChain/fbc/libs/cosmos-sdk/codec"
 	sdk "github.com/FiboChain/fbc/libs/cosmos-sdk/types"
 	"github.com/tendermint/go-amino"
-
 
 	"github.com/FiboChain/fbc/libs/cosmos-sdk/store/prefix"
 )
@@ -33,6 +33,7 @@ type Subspace struct {
 	key   sdk.StoreKey // []byte -> []byte, stores parameter
 	tkey  sdk.StoreKey // []byte -> bool, stores parameter change
 	name  []byte
+	cName []byte
 	table KeyTable
 }
 
@@ -43,6 +44,7 @@ func NewSubspace(cdc *codec.Codec, key sdk.StoreKey, tkey sdk.StoreKey, name str
 		key:   key,
 		tkey:  tkey,
 		name:  []byte(name),
+		cName: []byte("custom/" + name + "/"),
 		table: NewKeyTable(),
 	}
 }
@@ -59,6 +61,30 @@ func (s Subspace) WithKeyTable(table KeyTable) Subspace {
 	}
 	if len(s.table.m) != 0 {
 		panic("SetKeyTable() called on already initialized Subspace")
+	}
+	if s.table.m == nil {
+		s.table.m = make(map[string]attribute)
+	}
+
+	for k, v := range table.m {
+		s.table.m[k] = v
+	}
+
+	// Allocate additional capacity for Subspace.name
+	// So we don't have to allocate extra space each time appending to the key
+	name := s.name
+	s.name = make([]byte, len(name), len(name)+table.maxKeyLength())
+	copy(s.name, name)
+
+	return s
+}
+
+func (s Subspace) LazyWithKeyTable(table KeyTable) Subspace {
+	if table.m == nil {
+		panic("SetKeyTable() called with nil KeyTable")
+	}
+	if len(s.table.m) == 0 {
+		panic("SetKeyTable() should call on already initialized Subspace")
 	}
 
 	for k, v := range table.m {
@@ -79,6 +105,13 @@ func (s Subspace) kvStore(ctx sdk.Context) sdk.KVStore {
 	// append here is safe, appends within a function won't cause
 	// weird side effects when its singlethreaded
 	return prefix.NewStore(ctx.KVStore(s.key), append(s.name, '/'))
+}
+
+// Returns a KVStore identical with ctx.KVStore(s.key).Prefix()
+func (s Subspace) CustomKVStore(ctx sdk.Context) sdk.KVStore {
+	// append here is safe, appends within a function won't cause
+	// weird side effects when its singlethreaded
+	return prefix.NewStore(ctx.KVStore(s.key), s.cName)
 }
 
 // Returns a transient store for modification
@@ -376,10 +409,60 @@ func (s Subspace) GetParamSet(ctx sdk.Context, ps ParamSet) {
 	}
 }
 
+// GetParamSetForInitGenesis iterates through each ParamSetPair where for each pair, it will
+// retrieve the value and set it to the corresponding value pointer provided, ignore the target keys for additional
+// in the ParamSetPair by calling Subspace#Get.
+func (s Subspace) GetParamSetForInitGenesis(ctx sdk.Context, ps ParamSet, ignoreList [][]byte) {
+	for _, pair := range ps.ParamSetPairs() {
+		beIgnore := false
+		for _, ignore := range ignoreList {
+			if bytes.Equal(ignore, pair.Key) {
+				beIgnore = true
+				break
+			}
+		}
+
+		if beIgnore {
+			continue
+		}
+		s.Get(ctx, pair.Key, pair.Value)
+	}
+}
+
 // SetParamSet iterates through each ParamSetPair and sets the value with the
 // corresponding parameter key in the Subspace's KVStore.
 func (s Subspace) SetParamSet(ctx sdk.Context, ps ParamSet) {
 	for _, pair := range ps.ParamSetPairs() {
+		// pair.Field is a pointer to the field, so indirecting the ptr.
+		// go-amino automatically handles it but just for sure,
+		// since SetStruct is meant to be used in InitGenesis
+		// so this method will not be called frequently
+		v := reflect.Indirect(reflect.ValueOf(pair.Value)).Interface()
+
+		if err := pair.ValidatorFn(v); err != nil {
+			panic(fmt.Sprintf("value from ParamSetPair is invalid: %s", err))
+		}
+
+		s.Set(ctx, pair.Key, v)
+	}
+}
+
+// SetParamSetForInitGenesis iterates through each ParamSetPair and sets the value with the
+// corresponding parameter key in the Subspace's KVStore, ignore the target keys for additional
+func (s Subspace) SetParamSetForInitGenesis(ctx sdk.Context, ps ParamSet, ignoreList [][]byte) {
+	for _, pair := range ps.ParamSetPairs() {
+		beIgnore := false
+		for _, ignore := range ignoreList {
+			if bytes.Equal(ignore, pair.Key) {
+				beIgnore = true
+				break
+			}
+		}
+
+		if beIgnore {
+			continue
+		}
+
 		// pair.Field is a pointer to the field, so indirecting the ptr.
 		// go-amino automatically handles it but just for sure,
 		// since SetStruct is meant to be used in InitGenesis

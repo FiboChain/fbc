@@ -8,9 +8,9 @@ import (
 	"os"
 
 	tmtypes "github.com/FiboChain/fbc/libs/tendermint/types"
+	dbm "github.com/FiboChain/fbc/libs/tm-db"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
-	dbm "github.com/FiboChain/fbc/libs/tm-db"
 
 	"github.com/FiboChain/fbc/libs/cosmos-sdk/client/flags"
 	"github.com/FiboChain/fbc/libs/cosmos-sdk/codec"

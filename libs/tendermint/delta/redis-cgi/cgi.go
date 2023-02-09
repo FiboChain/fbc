@@ -3,9 +3,9 @@ package redis_cgi
 import (
 	"context"
 	"fmt"
+	"github.com/go-redis/redis/v8"
 	"github.com/FiboChain/fbc/libs/tendermint/libs/log"
 	"github.com/FiboChain/fbc/libs/tendermint/types"
-	"github.com/go-redis/redis/v8"
 	"sync"
 	"time"
 )

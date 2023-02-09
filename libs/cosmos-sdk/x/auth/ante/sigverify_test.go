@@ -11,6 +11,8 @@ import (
 	"github.com/stretchr/testify/require"
 
 	sdk "github.com/FiboChain/fbc/libs/cosmos-sdk/types"
+	sdkerrors "github.com/FiboChain/fbc/libs/cosmos-sdk/types/errors"
+	"github.com/FiboChain/fbc/libs/cosmos-sdk/types/tx/signing"
 	"github.com/FiboChain/fbc/libs/cosmos-sdk/x/auth/ante"
 	"github.com/FiboChain/fbc/libs/cosmos-sdk/x/auth/types"
 )
@@ -103,7 +105,7 @@ func TestSigVerification(t *testing.T) {
 	// setup
 	app, ctx := createTestApp(true)
 	// make block height non-zero to ensure account numbers part of signBytes
-	ctx = ctx.WithBlockHeight(1)
+	ctx.SetBlockHeight(1)
 
 	// keys and addresses
 	priv1, _, addr1 := types.KeyTestPubAddr()
@@ -145,7 +147,7 @@ func TestSigVerification(t *testing.T) {
 		{"no err on recheck", []crypto.PrivKey{}, []uint64{}, []uint64{}, true, false},
 	}
 	for i, tc := range testCases {
-		ctx = ctx.WithIsReCheckTx(tc.recheck)
+		ctx.SetIsReCheckTx(tc.recheck)
 
 		tx := types.NewTestTx(ctx, msgs, tc.privs, tc.accNums, tc.seqs, fee)
 
@@ -155,6 +157,63 @@ func TestSigVerification(t *testing.T) {
 		} else {
 			require.Nil(t, err, "TestCase %d: %s errored unexpectedly. Err: %v", i, tc.name, err)
 		}
+	}
+}
+
+func TestIbcSignModeSigVerify(t *testing.T) {
+	app, ctx := createTestApp(true)
+	ctx.SetBlockHeight(1)
+	priv, _, addr := types.KeyTestPubAddr()
+	app.AccountKeeper.SetAccount(ctx, app.AccountKeeper.NewAccountWithAddress(ctx, addr))
+	handler := sdk.ChainAnteDecorators(ante.NewSetPubKeyDecorator(app.AccountKeeper), ante.NewSigVerificationDecorator(app.AccountKeeper))
+
+	type testCase struct {
+		name     string
+		simulate bool
+		signMode signing.SignMode
+		err      error
+	}
+	testCases := []testCase{
+		{
+			"sign mode unspecified, error",
+			false,
+			signing.SignMode_SIGN_MODE_UNSPECIFIED,
+			sdkerrors.Wrap(sdkerrors.ErrUnauthorized, "signature verification failed"),
+		}, {
+			"sign mode unspecified, success",
+			true,
+			signing.SignMode_SIGN_MODE_UNSPECIFIED,
+			nil,
+		}, {
+			"sign mode legacy amino, error",
+			false,
+			signing.SignMode_SIGN_MODE_LEGACY_AMINO_JSON,
+			sdkerrors.Wrap(sdkerrors.ErrUnauthorized, "signature verification failed"),
+		}, {
+			"sign mode legacy amino, success",
+			true,
+			signing.SignMode_SIGN_MODE_LEGACY_AMINO_JSON,
+			nil,
+		},
+	}
+	for _, tc := range testCases {
+		stdTx := types.NewTestTx(ctx, []sdk.Msg{types.NewTestMsg(addr)}, []crypto.PrivKey{priv}, []uint64{0}, []uint64{0}, types.NewTestStdFee())
+		tx := fakeIbcTx(stdTx, []signing.SignMode{tc.signMode}, types.IbcFee{}, []uint64{0})
+		_, err := handler(ctx, tx, tc.simulate)
+		if tc.err == nil {
+			require.Equal(t, tc.err, err)
+		} else {
+			require.Equal(t, tc.err.Error()[0:30], err.Error()[0:30])
+		}
+	}
+}
+
+func fakeIbcTx(stdTx sdk.Tx, signMode []signing.SignMode, sigFee types.IbcFee, sequences []uint64) *types.IbcTx {
+	return &types.IbcTx{
+		StdTx:     stdTx.(*types.StdTx),
+		SignMode:  signMode,
+		SigFee:    sigFee,
+		Sequences: sequences,
 	}
 }
 
@@ -178,7 +237,7 @@ func runSigDecorators(t *testing.T, params types.Params, multisig bool, privs ..
 	// setup
 	app, ctx := createTestApp(true)
 	// Make block-height non-zero to include accNum in SignBytes
-	ctx = ctx.WithBlockHeight(1)
+	ctx.SetBlockHeight(1)
 	app.AccountKeeper.SetParams(ctx, params)
 
 	msgs := make([]sdk.Msg, len(privs))

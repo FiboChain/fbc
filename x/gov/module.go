@@ -2,23 +2,22 @@ package gov
 
 import (
 	"encoding/json"
-	sim "github.com/FiboChain/fbc/libs/cosmos-sdk/x/simulation"
 	"math/rand"
 
+	"github.com/gorilla/mux"
 	"github.com/FiboChain/fbc/libs/cosmos-sdk/client/context"
 	"github.com/FiboChain/fbc/libs/cosmos-sdk/codec"
 	sdk "github.com/FiboChain/fbc/libs/cosmos-sdk/types"
 	"github.com/FiboChain/fbc/libs/cosmos-sdk/types/module"
+	sim "github.com/FiboChain/fbc/libs/cosmos-sdk/x/simulation"
 	abci "github.com/FiboChain/fbc/libs/tendermint/abci/types"
-	"github.com/gorilla/mux"
-	"github.com/spf13/cobra"
-
 	"github.com/FiboChain/fbc/x/gov/client"
 	"github.com/FiboChain/fbc/x/gov/client/cli"
-	GovCli "github.com/FiboChain/fbc/x/gov/client/cli"
 	"github.com/FiboChain/fbc/x/gov/client/rest"
 	"github.com/FiboChain/fbc/x/gov/keeper"
 	"github.com/FiboChain/fbc/x/gov/types"
+	"github.com/FiboChain/fbc/x/wasm/watcher"
+	"github.com/spf13/cobra"
 )
 
 var (
@@ -77,12 +76,7 @@ func (a AppModuleBasic) RegisterRESTRoutes(ctx context.CLIContext, rtr *mux.Rout
 
 // GetTxCmd gets the root tx command of this module
 func (a AppModuleBasic) GetTxCmd(cdc *codec.Codec) *cobra.Command {
-	proposalCLIHandlers := make([]*cobra.Command, len(a.proposalHandlers))
-	for i, proposalHandler := range a.proposalHandlers {
-		proposalCLIHandlers[i] = proposalHandler.CLIHandler(cdc)
-	}
-
-	return GovCli.GetTxCmd(types.StoreKey, cdc, proposalCLIHandlers)
+	return nil
 }
 
 // GetQueryCmd gets the root query command of this module
@@ -156,6 +150,10 @@ func (AppModule) BeginBlock(_ sdk.Context, _ abci.RequestBeginBlock) {}
 // EndBlock implements module end-block
 func (am AppModule) EndBlock(ctx sdk.Context, _ abci.RequestEndBlock) []abci.ValidatorUpdate {
 	EndBlocker(ctx, am.keeper)
+	if watcher.Enable() {
+		watcher.Save(nil)
+	}
+
 	return []abci.ValidatorUpdate{}
 }
 

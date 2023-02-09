@@ -3,6 +3,8 @@ package store
 import (
 	"bytes"
 	"fmt"
+	"math"
+	"math/rand"
 	"os"
 	"runtime/debug"
 	"strings"
@@ -614,6 +616,38 @@ func TestBlockFetchAtHeight(t *testing.T) {
 	require.Nil(t, blockAtHeightPlus2, "expecting an unsuccessful load of Height()+2")
 }
 
+func TestBlockFetchAtHeightWithExInfo(t *testing.T) {
+	types.BlockCompressThreshold = 0
+	state, bs, cleanup := makeStateAndBlockStore(log.NewTMLogger(new(bytes.Buffer)))
+	defer cleanup()
+	require.Equal(t, bs.Height(), int64(0), "initially the height should be zero")
+	block := makeBlock(bs.Height()+1, state, new(types.Commit))
+
+	exInfo1 := &types.BlockExInfo{BlockCompressType: 2, BlockCompressFlag: 1, BlockPartSize: 2}
+	partSet := block.MakePartSetByExInfo(exInfo1)
+	seenCommit := makeTestCommit(10, tmtime.Now())
+	bs.SaveBlock(block, partSet, seenCommit)
+	require.Equal(t, bs.Height(), block.Header.Height, "expecting the new height to be changed")
+
+	blockAtHeight, exInfo2 := bs.LoadBlockWithExInfo(bs.Height())
+	bz1 := cdc.MustMarshalBinaryBare(block)
+	bz2 := cdc.MustMarshalBinaryBare(blockAtHeight)
+	require.Equal(t, bz1, bz2)
+	require.Equal(t, block.Hash(), blockAtHeight.Hash(),
+		"expecting a successful load of the last saved block")
+	require.EqualValues(t, exInfo1, exInfo2)
+
+	blockAtHeightPlus1, exInfoPlus1 := bs.LoadBlockWithExInfo(bs.Height() + 1)
+	require.Nil(t, blockAtHeightPlus1, "expecting an unsuccessful load of Height()+1")
+	require.Nil(t, exInfoPlus1)
+	blockAtHeightPlus2, exInfoPlus2 := bs.LoadBlockWithExInfo(bs.Height() + 2)
+	require.Nil(t, blockAtHeightPlus2, "expecting an unsuccessful load of Height()+2")
+	require.Nil(t, exInfoPlus2)
+
+	partSet2 := block.MakePartSetByExInfo(exInfo2)
+	require.EqualValues(t, partSet, partSet2)
+}
+
 func doFn(fn func() (interface{}, error)) (res interface{}, err error, panicErr error) {
 	defer func() {
 		if r := recover(); r != nil {
@@ -641,4 +675,82 @@ func newBlock(hdr types.Header, lastCommit *types.Commit) *types.Block {
 		Header:     hdr,
 		LastCommit: lastCommit,
 	}
+}
+
+func calcBlockMetaKeyOld(height int64) []byte {
+	return []byte(fmt.Sprintf("H:%v", height))
+}
+
+func calcBlockPartKeyOld(height int64, partIndex int) []byte {
+	return []byte(fmt.Sprintf("P:%v:%v", height, partIndex))
+}
+
+func calcBlockCommitKeyOld(height int64) []byte {
+	return []byte(fmt.Sprintf("C:%v", height))
+}
+
+func calcSeenCommitKeyOld(height int64) []byte {
+	return []byte(fmt.Sprintf("SC:%v", height))
+}
+
+func calcBlockHashKeyOld(hash []byte) []byte {
+	return []byte(fmt.Sprintf("BH:%x", hash))
+}
+
+func TestCalcKey(t *testing.T) {
+	for _, tc := range []int64{
+		0, 1, -2, math.MaxInt64, math.MinInt64, 12345, -12345,
+	} {
+		require.Equal(t, calcBlockMetaKey(tc), calcBlockMetaKeyOld(tc))
+		require.Equal(t, calcBlockCommitKey(tc), calcBlockCommitKeyOld(tc))
+		require.Equal(t, calcSeenCommitKey(tc), calcSeenCommitKeyOld(tc))
+	}
+
+	for _, tc := range []struct {
+		height    int64
+		partIndex int
+	}{
+		{},
+		{-1, -1},
+		{
+			height:    12345,
+			partIndex: 23456,
+		},
+		{
+			height:    math.MaxInt64,
+			partIndex: math.MaxInt,
+		},
+		{
+			height:    math.MinInt64,
+			partIndex: math.MinInt,
+		},
+	} {
+		require.Equal(t, calcBlockPartKey(tc.height, tc.partIndex), calcBlockPartKeyOld(tc.height, tc.partIndex))
+	}
+
+	for _, tc := range [][]byte{
+		nil,
+		[]byte{},
+		make([]byte, 100),
+		make([]byte, 1024),
+	} {
+		_, err := rand.Read(tc)
+		require.NoError(t, err)
+		require.Equal(t, calcBlockHashKey(tc), calcBlockHashKeyOld(tc))
+	}
+}
+
+func BenchmarkCalcKey(b *testing.B) {
+	b.Run("calcBlockMetaKey", func(b *testing.B) {
+		b.ReportAllocs()
+		for i := 0; i < b.N; i++ {
+			calcBlockMetaKey(int64(i))
+		}
+	})
+	b.Run("calcBlockMetaKeyOld", func(b *testing.B) {
+		b.ReportAllocs()
+		for i := 0; i < b.N; i++ {
+			calcBlockMetaKeyOld(int64(i))
+		}
+	})
 }

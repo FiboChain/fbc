@@ -18,12 +18,12 @@ func TestAccAddressFromBech32(t *testing.T) {
 		addrStr    string
 		expectPass bool
 	}{
-		{"ex10q0rk5qnyag7wfvvt7rtphlw589m7frs3hvqmf", true},
+		{"fb1e34x06m7hqwt4n98yuaxuxljr0juumktxdav63", true},
 		{"0x0073F2E28ef8F117e53d858094086Defaf1837D5", true},
 		{"2CF4ea7dF75b513509d95946B43062E26bD88035", true},
 		{strings.ToLower("2CF4ea7dF75b513509d95946B43062E26bD88035"), true},
 		{strings.ToUpper("2CF4ea7dF75b513509d95946B43062E26bD88035"), true},
-		{"ex10q0rk5qnyag7wfvvt7rtphlw589m7frs3hvqmf_", false},
+		{"fb1e34x06m7hqwt4n98yuaxuxljr0juumktxdav63_", false},
 		{"0x0073F2E28ef8F117e53d858094086Defaf1837D5_", false},
 		{"0073F2E28ef8F117e53d858094086Defaf1837D5_", false},
 	}

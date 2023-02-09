@@ -11,7 +11,7 @@ import (
 // Default parameter namespace
 const (
 	DefaultParamspace        = ModuleName
-	defaultQuoteSymbol       = "fusd"
+	defaultQuoteSymbol       = "usdf"
 	defaultCreatePoolFee     = "0"
 	defaultCreatePoolDeposit = "10"
 )

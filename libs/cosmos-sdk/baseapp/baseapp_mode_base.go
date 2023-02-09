@@ -3,9 +3,9 @@ package baseapp
 import (
 	"encoding/json"
 	"fmt"
-
 	sdk "github.com/FiboChain/fbc/libs/cosmos-sdk/types"
 	sdkerrors "github.com/FiboChain/fbc/libs/cosmos-sdk/types/errors"
+	//"github.com/FiboChain/fbc/libs/cosmos-sdk/x/auth/types"
 	abci "github.com/FiboChain/fbc/libs/tendermint/abci/types"
 	tmtypes "github.com/FiboChain/fbc/libs/tendermint/types"
 )
@@ -58,8 +58,42 @@ type modeHandlerCheck struct {
 	*modeHandlerBase
 }
 
+func (m *modeHandlerCheck) handleRunMsg(info *runTxInfo) (err error) {
+	if m.mode != runTxModeCheck {
+		return m.modeHandlerBase.handleRunMsg(info)
+	}
+
+	info.result = &sdk.Result{
+		Data:   make([]byte, 0),
+		Log:    "[]",
+		Events: sdk.EmptyEvents(),
+	}
+	info.runMsgFinished = true
+
+	m.handleRunMsg4CheckMode(info)
+	err = m.checkHigherThanMercury(err, info)
+	return
+}
+
 type modeHandlerRecheck struct {
 	*modeHandlerBase
+}
+
+func (m *modeHandlerRecheck) handleRunMsg(info *runTxInfo) (err error) {
+	if m.mode != runTxModeReCheck {
+		return m.modeHandlerBase.handleRunMsg(info)
+	}
+
+	info.result = &sdk.Result{
+		Data:   make([]byte, 0),
+		Log:    "[]",
+		Events: sdk.EmptyEvents(),
+	}
+	info.runMsgFinished = true
+
+	m.handleRunMsg4CheckMode(info)
+	err = m.checkHigherThanMercury(err, info)
+	return
 }
 
 type modeHandlerSimulate struct {

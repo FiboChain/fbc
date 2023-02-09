@@ -8,8 +8,8 @@ import (
 	sdk "github.com/FiboChain/fbc/libs/cosmos-sdk/types"
 	abci "github.com/FiboChain/fbc/libs/tendermint/abci/types"
 	"github.com/FiboChain/fbc/libs/tendermint/libs/log"
-	"github.com/stretchr/testify/require"
 	dbm "github.com/FiboChain/fbc/libs/tm-db"
+	"github.com/stretchr/testify/require"
 )
 
 func createTestInput(t *testing.T) (sdk.Context, ProtocolKeeper) {

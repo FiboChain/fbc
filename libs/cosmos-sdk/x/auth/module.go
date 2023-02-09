@@ -3,10 +3,11 @@ package auth
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/FiboChain/fbc/libs/ibc-go/modules/core/base"
 	"math/rand"
 
-	abci "github.com/FiboChain/fbc/libs/tendermint/abci/types"
 	"github.com/gorilla/mux"
+	abci "github.com/FiboChain/fbc/libs/tendermint/abci/types"
 	"github.com/spf13/cobra"
 
 	"github.com/FiboChain/fbc/libs/cosmos-sdk/client/context"
@@ -77,14 +78,17 @@ type AppModule struct {
 	AppModuleBasic
 
 	accountKeeper AccountKeeper
+	*base.BaseIBCUpgradeModule
 }
 
 // NewAppModule creates a new AppModule object
 func NewAppModule(accountKeeper AccountKeeper) AppModule {
-	return AppModule{
+	ret := AppModule{
 		AppModuleBasic: AppModuleBasic{},
 		accountKeeper:  accountKeeper,
 	}
+	ret.BaseIBCUpgradeModule = base.NewBaseIBCUpgradeModule(ret)
+	return ret
 }
 
 // Name returns the auth module's name.

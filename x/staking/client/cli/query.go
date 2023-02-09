@@ -240,7 +240,7 @@ func GetCmdQueryDelegator(storeName string, cdc *codec.Codec) *cobra.Command {
 			fmt.Sprintf(`Query the information of delegations and all shares recently added by a delegator
 
 Example:
-$ %s query staking delegator fb1h0j8x0v9hs4eq6ppgamemfyu4vuvp2sl4xgenz
+$ %s query staking delegator fb1cftp8q8g4aa65nw9s5trwexe77d9t6cr8ndu02
 `,
 				version.ClientName,
 			),

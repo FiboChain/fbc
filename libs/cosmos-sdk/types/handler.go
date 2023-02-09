@@ -1,5 +1,11 @@
 package types
 
+import (
+	"github.com/ethereum/go-ethereum/common"
+
+	abci "github.com/FiboChain/fbc/libs/tendermint/abci/types"
+)
+
 // Handler defines the core of the state transition function of an application.
 type Handler func(ctx Context, msg Msg) (*Result, error)
 
@@ -7,15 +13,26 @@ type Handler func(ctx Context, msg Msg) (*Result, error)
 // If newCtx.IsZero(), ctx is used instead.
 type AnteHandler func(ctx Context, tx Tx, simulate bool) (newCtx Context, err error)
 
+type PreDeliverTxHandler func(ctx Context, tx Tx, onlyVerifySig bool)
+
 type GasRefundHandler func(ctx Context, tx Tx) (fee Coins, err error)
 
-type AccHandler func(ctx Context, address AccAddress) (nonce uint64)
+type AccNonceHandler func(ctx Context, address AccAddress) (nonce uint64)
 
-type UpdateFeeCollectorAccHandler func(ctx Context, balance Coins) error
+type EvmSysContractAddressHandler func(ctx Context, addr AccAddress) bool
 
-type LogFix func(isAnteFailed [][]string) (logs [][]byte)
+type UpdateFeeCollectorAccHandler func(ctx Context, balance Coins, txFeesplit []*FeeSplitInfo) error
 
-type GetTxFeeHandler func(ctx Context, tx Tx) (Coins, bool)
+type LogFix func(tx []Tx, logIndex []int, hasEnterEvmTx []bool, errs []error, resp []abci.ResponseDeliverTx) (logs [][]byte)
+type UpdateFeeSplitHandler func(txHash common.Hash, addr AccAddress, fee Coins, isDelete bool)
+type GetTxFeeAndFromHandler func(ctx Context, tx Tx) (Coins, bool, string, string, error)
+type GetTxFeeHandler func(tx Tx) Coins
+type UpdateGPOHandler func(dynamicGpInfos []DynamicGasInfo)
+type CustomizeOnStop func(ctx Context) error
+
+type MptCommitHandler func(ctx Context)
+
+type EvmWatcherCollector func(...IWatcher)
 
 // AnteDecorator wraps the next AnteHandler to perform custom pre- and post-processing.
 type AnteDecorator interface {
@@ -46,8 +63,10 @@ func ChainAnteDecorators(chain ...AnteDecorator) AnteHandler {
 		chain = append(chain, Terminator{})
 	}
 
+	next := ChainAnteDecorators(chain[1:]...)
+
 	return func(ctx Context, tx Tx, simulate bool) (Context, error) {
-		return chain[0].AnteHandle(ctx, tx, simulate, ChainAnteDecorators(chain[1:]...))
+		return chain[0].AnteHandle(ctx, tx, simulate, next)
 	}
 }
 

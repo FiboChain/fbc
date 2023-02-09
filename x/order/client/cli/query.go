@@ -61,9 +61,9 @@ func GetCmdDepthBook(queryRoute string, cdc *codec.Codec) *cobra.Command {
 		Short: "Query the depth book of a trading pair",
 		Long: strings.TrimSpace(`Query the depth book of a trading pair:
 
-$ fbchaincli query depthbook mytoken_fibo
+$ fbchaincli query depthbook mytoken_okt
 
-The 'product' is a trading pair in full name of the tokens: ${base-asset-symbol}_${quote-asset-symbol}, for example 'mytoken_fibo'.
+The 'product' is a trading pair in full name of the tokens: ${base-asset-symbol}_${quote-asset-symbol}, for example 'mytoken_okt'.
 `),
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {

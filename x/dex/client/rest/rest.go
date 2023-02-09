@@ -13,8 +13,8 @@ import (
 	"github.com/FiboChain/fbc/x/common"
 	govRest "github.com/FiboChain/fbc/x/gov/client/rest"
 
-	"github.com/FiboChain/fbc/libs/cosmos-sdk/client/context"
 	"github.com/gorilla/mux"
+	"github.com/FiboChain/fbc/libs/cosmos-sdk/client/context"
 )
 
 // RegisterRoutes - Central function to define routes that get registered by the main application

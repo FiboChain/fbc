@@ -17,7 +17,7 @@ var _ govtypes.Content = ParameterChangeProposal{}
 
 func init() {
 	govtypes.RegisterProposalType(sdkparams.ProposalTypeChange)
-	govtypes.RegisterProposalTypeCodec(ParameterChangeProposal{}, "fbchain/params/ParameterChangeProposal")
+	govtypes.RegisterProposalTypeCodec(ParameterChangeProposal{}, "fibochain/params/ParameterChangeProposal")
 }
 
 // ParameterChangeProposal is the struct of param change proposal

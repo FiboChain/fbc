@@ -6,11 +6,11 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/gorilla/mux"
 	"github.com/FiboChain/fbc/libs/cosmos-sdk/client/context"
 	"github.com/FiboChain/fbc/libs/cosmos-sdk/types/rest"
 	"github.com/FiboChain/fbc/x/ammswap/types"
 	"github.com/FiboChain/fbc/x/common"
-	"github.com/gorilla/mux"
 )
 
 func registerQueryRoutes(cliCtx context.CLIContext, r *mux.Router) {

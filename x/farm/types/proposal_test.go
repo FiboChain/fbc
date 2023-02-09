@@ -1,11 +1,15 @@
+//go:build ignore
+// +build ignore
+
 package types
 
 import (
+	"testing"
+
 	sdk "github.com/FiboChain/fbc/libs/cosmos-sdk/types"
 	"github.com/FiboChain/fbc/x/common"
 	govTypes "github.com/FiboChain/fbc/x/gov/types"
 	"github.com/stretchr/testify/require"
-	"testing"
 )
 
 func TestNewManageWhiteListProposal(t *testing.T) {

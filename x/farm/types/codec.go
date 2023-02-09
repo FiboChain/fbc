@@ -6,13 +6,13 @@ import (
 
 // RegisterCodec registers concrete types on codec
 func RegisterCodec(cdc *codec.Codec) {
-	cdc.RegisterConcrete(MsgCreatePool{}, "fbchain/farm/MsgCreatePool", nil)
-	cdc.RegisterConcrete(MsgDestroyPool{}, "fbchain/farm/MsgDestroyPool", nil)
-	cdc.RegisterConcrete(MsgLock{}, "fbchain/farm/MsgLock", nil)
-	cdc.RegisterConcrete(MsgUnlock{}, "fbchain/farm/MsgUnlock", nil)
-	cdc.RegisterConcrete(MsgClaim{}, "fbchain/farm/MsgClaim", nil)
-	cdc.RegisterConcrete(MsgProvide{}, "fbchain/farm/MsgProvide", nil)
-	cdc.RegisterConcrete(ManageWhiteListProposal{}, "fbchain/farm/ManageWhiteListProposal", nil)
+	cdc.RegisterConcrete(MsgCreatePool{}, "fibochain/farm/MsgCreatePool", nil)
+	cdc.RegisterConcrete(MsgDestroyPool{}, "fibochain/farm/MsgDestroyPool", nil)
+	cdc.RegisterConcrete(MsgLock{}, "fibochain/farm/MsgLock", nil)
+	cdc.RegisterConcrete(MsgUnlock{}, "fibochain/farm/MsgUnlock", nil)
+	cdc.RegisterConcrete(MsgClaim{}, "fibochain/farm/MsgClaim", nil)
+	cdc.RegisterConcrete(MsgProvide{}, "fibochain/farm/MsgProvide", nil)
+	cdc.RegisterConcrete(ManageWhiteListProposal{}, "fibochain/farm/ManageWhiteListProposal", nil)
 }
 
 // ModuleCdc defines the module codec

@@ -7,8 +7,8 @@ import (
 
 	tmcrypto "github.com/FiboChain/fbc/libs/tendermint/crypto"
 	cryptoAmino "github.com/FiboChain/fbc/libs/tendermint/crypto/encoding/amino"
-	"github.com/pkg/errors"
 	dbm "github.com/FiboChain/fbc/libs/tm-db"
+	"github.com/pkg/errors"
 
 	"github.com/FiboChain/fbc/libs/cosmos-sdk/crypto/keys/keyerror"
 	"github.com/FiboChain/fbc/libs/cosmos-sdk/crypto/keys/mintkey"

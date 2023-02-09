@@ -5,19 +5,21 @@ import (
 	"fmt"
 	"io"
 	"sync"
-
-	"github.com/FiboChain/fbc/libs/cosmos-sdk/store/flatkv"
-
-	"github.com/FiboChain/fbc/libs/iavl"
-	abci "github.com/FiboChain/fbc/libs/tendermint/abci/types"
-	"github.com/FiboChain/fbc/libs/tendermint/crypto/merkle"
-	tmkv "github.com/FiboChain/fbc/libs/tendermint/libs/kv"
-	dbm "github.com/FiboChain/fbc/libs/tm-db"
+	"time"
 
 	"github.com/FiboChain/fbc/libs/cosmos-sdk/store/cachekv"
+	"github.com/FiboChain/fbc/libs/cosmos-sdk/store/flatkv"
 	"github.com/FiboChain/fbc/libs/cosmos-sdk/store/tracekv"
 	"github.com/FiboChain/fbc/libs/cosmos-sdk/store/types"
 	sdkerrors "github.com/FiboChain/fbc/libs/cosmos-sdk/types/errors"
+	"github.com/FiboChain/fbc/libs/iavl"
+	iavlconfig "github.com/FiboChain/fbc/libs/iavl/config"
+	"github.com/FiboChain/fbc/libs/system/trace/persist"
+	abci "github.com/FiboChain/fbc/libs/tendermint/abci/types"
+	"github.com/FiboChain/fbc/libs/tendermint/crypto/merkle"
+	tmkv "github.com/FiboChain/fbc/libs/tendermint/libs/kv"
+	tmtypes "github.com/FiboChain/fbc/libs/tendermint/types"
+	dbm "github.com/FiboChain/fbc/libs/tm-db"
 )
 
 var (
@@ -37,8 +39,20 @@ var (
 type Store struct {
 	tree        Tree
 	flatKVStore *flatkv.Store
+	//for upgrade
+	upgradeVersion int64
+	//for time statistics
+	beginTime time.Time
 }
 
+func (st *Store) CurrentVersion() int64 {
+	tr := st.tree.(*iavl.MutableTree)
+	return tr.Version()
+}
+func (st *Store) StopStoreWithVersion(version int64) {
+	tr := st.tree.(*iavl.MutableTree)
+	tr.StopTree()
+}
 func (st *Store) StopStore() {
 	tr := st.tree.(*iavl.MutableTree)
 	tr.StopTree()
@@ -52,18 +66,17 @@ func (st *Store) GetHeights() map[int64][]byte {
 // store's version (id) from the provided DB. An error is returned if the version
 // fails to load.
 func LoadStore(db dbm.DB, flatKVDB dbm.DB, id types.CommitID, lazyLoading bool, startVersion int64) (types.CommitKVStore, error) {
-	return LoadStoreWithInitialVersion(db, flatKVDB, id, lazyLoading, uint64(startVersion))
+	return LoadStoreWithInitialVersion(db, flatKVDB, id, lazyLoading, uint64(startVersion), uint64(0))
 }
 
-// LoadStore returns an IAVL Store as a CommitKVStore setting its initialVersion
+// LoadStoreWithInitialVersion returns an IAVL Store as a CommitKVStore setting its initialVersion
 // to the one given. Internally, it will load the store's version (id) from the
 // provided DB. An error is returned if the version fails to load.
-func LoadStoreWithInitialVersion(db dbm.DB, flatKVDB dbm.DB, id types.CommitID, lazyLoading bool, initialVersion uint64) (types.CommitKVStore, error) {
-	tree, err := iavl.NewMutableTreeWithOpts(db, IavlCacheSize, &iavl.Options{InitialVersion: initialVersion})
+func LoadStoreWithInitialVersion(db dbm.DB, flatKVDB dbm.DB, id types.CommitID, lazyLoading bool, initialVersion uint64, upgradeVersion uint64) (types.CommitKVStore, error) {
+	tree, err := iavl.NewMutableTreeWithOpts(db, iavlconfig.DynamicConfig.GetIavlCacheSize(), &iavl.Options{InitialVersion: initialVersion, UpgradeVersion: upgradeVersion})
 	if err != nil {
 		return nil, err
 	}
-
 	if lazyLoading {
 		_, err = tree.LazyLoadVersion(id.Version)
 	} else {
@@ -75,8 +88,9 @@ func LoadStoreWithInitialVersion(db dbm.DB, flatKVDB dbm.DB, id types.CommitID, 
 	}
 
 	st := &Store{
-		tree:        tree,
-		flatKVStore: flatkv.NewStore(flatKVDB),
+		tree:           tree,
+		flatKVStore:    flatkv.NewStore(flatKVDB),
+		upgradeVersion: -1,
 	}
 
 	if err = st.ValidateFlatVersion(); err != nil {
@@ -85,13 +99,19 @@ func LoadStoreWithInitialVersion(db dbm.DB, flatKVDB dbm.DB, id types.CommitID, 
 
 	return st, nil
 }
-
-func GetCommitVersion(db dbm.DB) (int64, error) {
-	tree, err := iavl.NewMutableTreeWithOpts(db, IavlCacheSize, &iavl.Options{InitialVersion: 0})
+func HasVersion(db dbm.DB, version int64) (bool, error) {
+	tree, err := iavl.NewMutableTreeWithOpts(db, iavlconfig.DynamicConfig.GetIavlCacheSize(), &iavl.Options{InitialVersion: 0})
 	if err != nil {
-		return 0, err
+		return false, err
 	}
-	return tree.GetCommitVersion(), nil
+	return tree.VersionExistsInDb(version), nil
+}
+func GetCommitVersions(db dbm.DB) ([]int64, error) {
+	tree, err := iavl.NewMutableTreeWithOpts(db, iavlconfig.DynamicConfig.GetIavlCacheSize(), &iavl.Options{InitialVersion: 0})
+	if err != nil {
+		return nil, err
+	}
+	return tree.GetVersions()
 }
 
 // UnsafeNewStore returns a reference to a new IAVL Store with a given mutable
@@ -102,7 +122,8 @@ func GetCommitVersion(db dbm.DB) (int64, error) {
 // passed into iavl.MutableTree
 func UnsafeNewStore(tree *iavl.MutableTree) *Store {
 	return &Store{
-		tree: tree,
+		tree:           tree,
+		upgradeVersion: -1,
 	}
 }
 
@@ -116,7 +137,7 @@ func (st *Store) GetImmutable(version int64) (*Store, error) {
 	var err error
 	if !abci.GetDisableABCIQueryMutex() {
 		if !st.VersionExists(version) {
-			return &Store{tree: &immutableTree{&iavl.ImmutableTree{}}}, nil
+			return nil, iavl.ErrVersionDoesNotExist
 		}
 
 		iTree, err = st.tree.GetImmutable(version)
@@ -126,7 +147,7 @@ func (st *Store) GetImmutable(version int64) (*Store, error) {
 	} else {
 		iTree, err = st.tree.GetImmutable(version)
 		if err != nil {
-			return &Store{tree: &immutableTree{&iavl.ImmutableTree{}}}, nil
+			return nil, iavl.ErrVersionDoesNotExist
 		}
 	}
 	return &Store{
@@ -134,11 +155,21 @@ func (st *Store) GetImmutable(version int64) (*Store, error) {
 	}, nil
 }
 
+// GetEmptyImmutable returns an empty immutable IAVL tree
+func (st *Store) GetEmptyImmutable() *Store {
+	return &Store{tree: &immutableTree{&iavl.ImmutableTree{}}}
+}
+
 func (st *Store) CommitterCommit(inputDelta *iavl.TreeDelta) (types.CommitID, *iavl.TreeDelta) { // CommitterCommit
 	flag := false
 	if inputDelta != nil {
 		flag = true
 		st.tree.SetDelta(inputDelta)
+	}
+	ver := st.GetUpgradeVersion()
+	if ver != -1 {
+		st.tree.SetUpgradeVersion(ver)
+		st.SetUpgradeVersion(-1)
 	}
 	hash, version, outputDelta, err := st.tree.SaveVersion(flag)
 	if err != nil {
@@ -162,6 +193,10 @@ func (st *Store) LastCommitID() types.CommitID {
 	}
 }
 
+func (st *Store) LastCommitVersion() int64 {
+	return st.tree.Version()
+}
+
 // SetPruning panics as pruning options should be provided at initialization
 // since IAVl accepts pruning options directly.
 func (st *Store) SetPruning(_ types.PruningOptions) {
@@ -180,7 +215,10 @@ func (st *Store) GetStoreType() types.StoreType {
 
 // Implements Store.
 func (st *Store) CacheWrap() types.CacheWrap {
-	return cachekv.NewStore(st)
+	stores := cachekv.NewStoreWithPreChangeHandler(st, st.tree.PreChanges)
+	stores.StatisticsCell = st
+
+	return stores
 }
 
 // CacheWrapWithTrace implements the Store interface.
@@ -201,7 +239,7 @@ func (st *Store) Get(key []byte) []byte {
 	if value != nil {
 		return value
 	}
-	_, value = st.tree.Get(key)
+	value = st.tree.Get(key)
 	if value != nil {
 		st.setFlatKV(key, value)
 	}
@@ -263,7 +301,8 @@ func getHeight(tree Tree, req abci.RequestQuery) int64 {
 	height := req.Height
 	if height == 0 {
 		latest := tree.Version()
-		if tree.VersionExists(latest - 1) {
+		_, err := tree.GetImmutable(latest - 1)
+		if err == nil {
 			height = latest - 1
 		} else {
 			height = latest
@@ -280,28 +319,29 @@ func getHeight(tree Tree, req abci.RequestQuery) int64 {
 // if you care to have the latest data to see a tx results, you must
 // explicitly set the height you want to see
 func (st *Store) Query(req abci.RequestQuery) (res abci.ResponseQuery) {
+	if tmtypes.HigherThanVenus1(req.Height) {
+		return st.queryWithCM40(req)
+	}
 	if len(req.Data) == 0 {
 		return sdkerrors.QueryResult(sdkerrors.Wrap(sdkerrors.ErrTxDecode, "query cannot be zero length"))
 	}
 
-	tree := st.tree
-
 	// store the height we chose in the response, with 0 being changed to the
 	// latest height
-	res.Height = getHeight(tree, req)
+	res.Height = getHeight(st.tree, req)
 
 	switch req.Path {
 	case "/key": // get by key
 		key := req.Data // data holds the key bytes
-
 		res.Key = key
-		if !st.VersionExists(res.Height) {
-			res.Log = iavl.ErrVersionDoesNotExist.Error()
-			break
+
+		tree, err := st.tree.GetImmutable(res.Height)
+		if err != nil {
+			return sdkerrors.QueryResult(sdkerrors.Wrapf(iavl.ErrVersionDoesNotExist, "request height %d", req.Height))
 		}
 
 		if req.Prove {
-			value, proof, err := tree.GetVersionedWithProof(key, res.Height)
+			value, proof, err := tree.GetWithProof(key)
 			if err != nil {
 				res.Log = err.Error()
 				break
@@ -322,7 +362,7 @@ func (st *Store) Query(req abci.RequestQuery) (res abci.ResponseQuery) {
 				res.Proof = &merkle.Proof{Ops: []merkle.ProofOp{iavl.NewAbsenceOp(key, proof).ProofOp()}}
 			}
 		} else {
-			_, res.Value = tree.GetVersioned(key, res.Height)
+			_, res.Value = tree.GetWithIndex(key)
 		}
 
 	case "/subspace":
@@ -365,6 +405,14 @@ func (st *Store) GetNodeReadCount() int {
 func (st *Store) ResetCount() {
 	st.tree.ResetCount()
 	st.resetFlatKVCount()
+}
+
+func (st *Store) StartTiming() {
+	st.beginTime = time.Now()
+}
+
+func (st *Store) EndTiming(tag string) {
+	persist.GetStatistics().Accumulate(tag, st.beginTime)
 }
 
 //----------------------------------------
@@ -565,4 +613,12 @@ func (st *Store) Import(version int64) (*iavl.Importer, error) {
 		return nil, errors.New("iavl import failed: unable to find mutable tree")
 	}
 	return tree.Import(version)
+}
+
+func (st *Store) SetUpgradeVersion(version int64) {
+	st.upgradeVersion = version
+}
+
+func (st *Store) GetUpgradeVersion() int64 {
+	return st.upgradeVersion
 }

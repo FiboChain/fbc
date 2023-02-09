@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strconv"
 
+	"github.com/gorilla/mux"
 	"github.com/FiboChain/fbc/libs/cosmos-sdk/client/context"
 	"github.com/FiboChain/fbc/libs/cosmos-sdk/types"
 	"github.com/FiboChain/fbc/libs/cosmos-sdk/types/rest"
@@ -13,7 +14,6 @@ import (
 	"github.com/FiboChain/fbc/x/common"
 	"github.com/FiboChain/fbc/x/order/keeper"
 	ordertype "github.com/FiboChain/fbc/x/order/types"
-	"github.com/gorilla/mux"
 )
 
 // nolint

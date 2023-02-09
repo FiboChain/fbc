@@ -1,8 +1,8 @@
 # Simple usage with a mounted data directory:
 # > docker build -t fbchain .
-# > docker run -it -p 36657:36657 -p 36656:36656 -v ~/.fbchaind:/root/.fbchaind -v ~/.fbchaincli:/root/.fbchaincli fbchain fbchaind init mynode
-# > docker run -it -p 36657:36657 -p 36656:36656 -v ~/.fbchaind:/root/.fbchaind -v ~/.fbchaincli:/root/.fbchaincli fbchain fbchaind start
-FROM golang:alpine AS build-env
+# > docker run -it -p 36657:36657 -p 36656:36656 -v ~/.fbchaind:/root/.fbchaind -v ~/.fbchaincli:/root/.fbchaincli fbc fbchaind init mynode
+# > docker run -it -p 36657:36657 -p 36656:36656 -v ~/.fbchaind:/root/.fbchaind -v ~/.fbchaincli:/root/.fbchaincli fbc fbchaind start
+FROM golang:1.17.2-alpine AS build-env
 
 # Install minimum necessary dependencies, remove packages
 RUN apk add --no-cache curl make git libc-dev bash gcc linux-headers eudev-dev
@@ -13,7 +13,6 @@ WORKDIR /go/src/github.com/FiboChain/fbc
 # Add source files
 COPY . .
 
-# Build fbchain
 ENV GO111MODULE=on \
     GOPROXY=http://goproxy.cn
 # Build Fibonacci

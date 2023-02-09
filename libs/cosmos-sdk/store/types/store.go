@@ -12,6 +12,10 @@ import (
 	dbm "github.com/FiboChain/fbc/libs/tm-db"
 )
 
+const (
+	FlagLoadVersionAsync = "enable-store-load-async"
+)
+
 type Store interface { //nolint
 	GetStoreType() StoreType
 	CacheWrapper
@@ -20,8 +24,11 @@ type Store interface { //nolint
 // something that can persist to disk
 type Committer interface {
 	CommitterCommit(*iavl.TreeDelta) (CommitID, *iavl.TreeDelta) // CommitterCommit
+	//for add module to init store version eg:ibc/erc20/capabilty module
+	SetUpgradeVersion(int64)
 
 	LastCommitID() CommitID
+	LastCommitVersion() int64
 
 	// TODO: Deprecate after 0.38.5
 	SetPruning(PruningOptions)
@@ -146,10 +153,16 @@ type CacheMultiStore interface {
 	Write() // Writes operations to underlying KVStore
 }
 
+type CacheMultiStoreResetter interface {
+	CacheMultiStore
+	Reset(MultiStore) bool
+}
+
 // A non-cache MultiStore.
 type CommitMultiStore interface {
 	Committer
 	MultiStore
+	CommitMultiStorePipeline
 	CommitterCommitMap(iavl.TreeDeltaMap) (CommitID, iavl.TreeDeltaMap) // CommitterCommit
 
 	// Mount a store of type using the given db.
@@ -228,7 +241,11 @@ type KVStore interface {
 }
 
 type CacheManager interface {
-	IteratorCache(cb func(key, value []byte, isDirty bool) bool) bool
+	IteratorCache(isdirty bool, cb func(key string, value []byte, isDirty bool, isDelete bool, storeKey StoreKey) bool, sKey StoreKey) bool
+	// Clear the cache without writing
+	Clear()
+	DisableCacheReadList()
+	GetRWSet(set MsRWSet)
 }
 
 // Alias iterator to db's Iterator for convenience.
@@ -281,11 +298,6 @@ type CacheWrapper interface { //nolint
 // CommitID
 
 // CommitID contains the tree version number and its merkle root.
-type CommitID struct {
-	Version int64
-	Hash    []byte
-}
-
 func (cid CommitID) IsZero() bool { //nolint
 	return cid.Version == 0 && len(cid.Hash) == 0
 }
@@ -306,6 +318,8 @@ const (
 	StoreTypeDB
 	StoreTypeIAVL
 	StoreTypeTransient
+	StoreTypeMPT
+	StoreTypeMemory
 )
 
 //----------------------------------------
@@ -362,6 +376,25 @@ func (key *TransientStoreKey) String() string {
 	return fmt.Sprintf("TransientStoreKey{%p, %s}", key, key.name)
 }
 
+// MemoryStoreKey defines a typed key to be used with an in-memory KVStore.
+type MemoryStoreKey struct {
+	name string
+}
+
+func NewMemoryStoreKey(name string) *MemoryStoreKey {
+	return &MemoryStoreKey{name: name}
+}
+
+// Name returns the name of the MemoryStoreKey.
+func (key *MemoryStoreKey) Name() string {
+	return key.name
+}
+
+// String returns a stringified representation of the MemoryStoreKey.
+func (key *MemoryStoreKey) String() string {
+	return fmt.Sprintf("MemoryStoreKey{%p, %s}", key, key.name)
+}
+
 //----------------------------------------
 
 // key-value result for iterator queries
@@ -385,4 +418,33 @@ type MultiStorePersistentCache interface {
 
 	// Reset the entire set of internal caches.
 	Reset()
+}
+
+type DirtyValue struct {
+	Deleted bool
+	Value   []byte
+}
+type CacheKVRWSet struct {
+	Read  map[string][]byte
+	Write map[string]DirtyValue
+}
+
+func NewCacheKvRWSet() CacheKVRWSet {
+	return CacheKVRWSet{
+		Read:  make(map[string][]byte),
+		Write: make(map[string]DirtyValue),
+	}
+}
+
+type MsRWSet = map[StoreKey]CacheKVRWSet
+
+func ClearMsRWSet(m MsRWSet) {
+	for _, v := range m {
+		for kk := range v.Read {
+			delete(v.Read, kk)
+		}
+		for kk := range v.Write {
+			delete(v.Write, kk)
+		}
+	}
 }

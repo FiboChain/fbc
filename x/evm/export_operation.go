@@ -16,8 +16,8 @@ import (
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	sdk "github.com/FiboChain/fbc/libs/cosmos-sdk/types"
 	"github.com/FiboChain/fbc/libs/tendermint/libs/log"
-	"github.com/FiboChain/fbc/x/evm/types"
 	dbm "github.com/FiboChain/fbc/libs/tm-db"
+	"github.com/FiboChain/fbc/x/evm/types"
 )
 
 const (
@@ -173,11 +173,11 @@ func exportStorage(ctx sdk.Context, k Keeper, addr ethcmn.Address, db dbm.DB) {
 
 func initEVMDB(path string) {
 	var err error
-	evmByteCodeDB, err = sdk.NewLevelDB("evm_bytecode", path)
+	evmByteCodeDB, err = sdk.NewDB("evm_bytecode", path)
 	if err != nil {
 		panic(err)
 	}
-	evmStateDB, err = sdk.NewLevelDB("evm_state", path)
+	evmStateDB, err = sdk.NewDB("evm_state", path)
 	if err != nil {
 		panic(err)
 	}

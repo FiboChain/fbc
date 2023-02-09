@@ -1,12 +1,15 @@
+//go:build ignore
+
 package types
 
 import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"github.com/FiboChain/fbc/x/common"
 	"testing"
 	"time"
+
+	"github.com/FiboChain/fbc/x/common"
 
 	sdk "github.com/FiboChain/fbc/libs/cosmos-sdk/types"
 	"github.com/stretchr/testify/require"

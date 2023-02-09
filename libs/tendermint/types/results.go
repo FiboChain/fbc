@@ -4,9 +4,9 @@ import (
 	gobytes "bytes"
 
 	abci "github.com/FiboChain/fbc/libs/tendermint/abci/types"
-	"github.com/FiboChain/fbc/libs/tendermint/crypto/merkle"
 	"github.com/FiboChain/fbc/libs/tendermint/libs/bytes"
 
+	"github.com/FiboChain/fbc/libs/tendermint/crypto/merkle"
 	"github.com/tendermint/go-amino"
 )
 

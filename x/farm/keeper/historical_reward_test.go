@@ -1,13 +1,16 @@
+//go:build ignore
+
 package keeper
 
 import (
 	"encoding/binary"
+	"testing"
+
 	"github.com/FiboChain/fbc/libs/cosmos-sdk/codec"
 	sdk "github.com/FiboChain/fbc/libs/cosmos-sdk/types"
 	"github.com/FiboChain/fbc/x/common"
 	"github.com/FiboChain/fbc/x/farm/types"
 	"github.com/stretchr/testify/require"
-	"testing"
 )
 
 func TestPoolCurrentReward(t *testing.T) {

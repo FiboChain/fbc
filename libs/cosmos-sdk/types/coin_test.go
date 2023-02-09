@@ -210,6 +210,58 @@ func TestCoinIsZero(t *testing.T) {
 	require.False(t, res)
 }
 
+func TestFilteredZeroCoins(t *testing.T) {
+	cases := []struct {
+		name     string
+		input    Coins
+		original string
+		expected string
+	}{
+		{
+			name: "all greater than zero",
+			input: Coins{
+				NewInt64Coin("testa", 1),
+				NewInt64Coin("testb", 2),
+				NewInt64Coin("testc", 3),
+				NewInt64Coin("testd", 4),
+				NewInt64Coin("teste", 5),
+			},
+			original: "1.000000000000000000testa,2.000000000000000000testb,3.000000000000000000testc,4.000000000000000000testd,5.000000000000000000teste",
+			expected: "1.000000000000000000testa,2.000000000000000000testb,3.000000000000000000testc,4.000000000000000000testd,5.000000000000000000teste",
+		},
+		{
+			name: "zero coin in middle",
+			input: Coins{
+				NewInt64Coin("testa", 1),
+				NewInt64Coin("testb", 2),
+				NewInt64Coin("testc", 0),
+				NewInt64Coin("testd", 4),
+				NewInt64Coin("teste", 5),
+			},
+			original: "1.000000000000000000testa,2.000000000000000000testb,0.000000000000000000testc,4.000000000000000000testd,5.000000000000000000teste",
+			expected: "1.000000000000000000testa,2.000000000000000000testb,4.000000000000000000testd,5.000000000000000000teste",
+		},
+		{
+			name: "zero coin end (unordered)",
+			input: Coins{
+				NewInt64Coin("teste", 5),
+				NewInt64Coin("testc", 3),
+				NewInt64Coin("testa", 1),
+				NewInt64Coin("testd", 4),
+				NewInt64Coin("testb", 0),
+			},
+			original: "5.000000000000000000teste,3.000000000000000000testc,1.000000000000000000testa,4.000000000000000000testd,0.000000000000000000testb",
+			expected: "1.000000000000000000testa,3.000000000000000000testc,4.000000000000000000testd,5.000000000000000000teste",
+		},
+	}
+
+	for _, tt := range cases {
+		undertest := NewCoins(tt.input...)
+		require.Equal(t, tt.expected, undertest.String(), "NewCoins must return expected results")
+		require.Equal(t, tt.original, tt.input.String(), "input must be unmodified and match original")
+	}
+}
+
 // ----------------------------------------------------------------------------
 // Coins tests
 
@@ -706,6 +758,35 @@ func TestMarshalJSONCoins(t *testing.T) {
 				require.Nil(t, newCoins)
 			} else {
 				require.Equal(t, tc.input, newCoins)
+			}
+		})
+	}
+}
+
+func TestConvertWei2FIBO(t *testing.T) {
+	testCases := []struct {
+		name       string
+		input      CoinAdapter
+		pass       bool
+		cm39StrOut string
+		cm40StrOut string
+	}{
+		{"invalid coin", NewCoinAdapter(DefaultBondDenom, NewInt(1)), false, "", ""},
+		{"valid coin with specific output", NewCoinAdapter(DefaultIbcWei, NewInt(1)), true, "0.000000000000000001fibo", "1fibo"},
+	}
+	for _, ca := range testCases {
+		t.Run(ca.name, func(t *testing.T) {
+			coinAdapters := CoinAdapters{ca.input}
+			coins, err := ConvWei2TOkt(coinAdapters)
+			if !ca.pass {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+				cm40Coin := coins[0]
+				require.Equal(t, cm40Coin.Denom, DefaultBondDenom)
+				require.Equal(t, ca.cm40StrOut, cm40Coin.String())
+				cm39Coin := cm40Coin.ToCoin()
+				require.Equal(t, ca.cm39StrOut, cm39Coin.String())
 			}
 		})
 	}

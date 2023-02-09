@@ -3,9 +3,9 @@ package mempool
 import (
 	"crypto/sha256"
 	"fmt"
-	cfg "github.com/FiboChain/fbc/libs/tendermint/config"
 
 	abci "github.com/FiboChain/fbc/libs/tendermint/abci/types"
+	cfg "github.com/FiboChain/fbc/libs/tendermint/config"
 	"github.com/FiboChain/fbc/libs/tendermint/p2p"
 	"github.com/FiboChain/fbc/libs/tendermint/types"
 )
@@ -80,14 +80,6 @@ type Mempool interface {
 	// TxsBytes returns the total size of all txs in the mempool.
 	TxsBytes() int64
 
-	// InitWAL creates a directory for the WAL file and opens a file itself. If
-	// there is an error, it will be of type *PathError.
-	InitWAL() error
-
-	// CloseWAL closes and discards the underlying WAL file.
-	// Any further writes will not be relayed to disk.
-	CloseWAL()
-
 	SetEventBus(eventBus types.TxEventPublisher)
 
 	GetConfig() *cfg.MempoolConfig
@@ -97,6 +89,10 @@ type Mempool interface {
 	SetAccountRetriever(retriever AccountRetriever)
 
 	SetTxInfoParser(parser TxInfoParser)
+
+	GetTxSimulateGas(txHash string) int64
+
+	GetEnableDeleteMinGPTx() bool
 }
 
 //--------------------------------------------------------------------------------
@@ -120,6 +116,7 @@ type TxInfo struct {
 	// SenderP2PID is the actual p2p.ID of the sender, used e.g. for logging.
 	SenderP2PID p2p.ID
 
+	from      string
 	wtx       *WrappedTx
 	checkType abci.CheckTxType
 }

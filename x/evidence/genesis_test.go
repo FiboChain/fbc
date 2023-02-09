@@ -27,10 +27,10 @@ type GenesisTestSuite struct {
 	keeper evidence.Keeper
 }
 
-func MakeFBChainApp() *app.FBchainApp {
+func MakeFBChainApp() *app.FBChainApp {
 	genesisState := app.NewDefaultGenesisState()
 	db := dbm.NewMemDB()
-	fbapp := app.NewFBchainApp(log.NewTMLogger(log.NewSyncWriter(os.Stdout)), db, nil, true, map[int64]bool{}, 0)
+	fbapp := app.NewFBChainApp(log.NewTMLogger(log.NewSyncWriter(os.Stdout)), db, nil, true, map[int64]bool{}, 0)
 
 	stateBytes, err := codec.MarshalJSONIndent(fbapp.Codec(), genesisState)
 	if err != nil {

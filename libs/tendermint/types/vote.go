@@ -8,7 +8,6 @@ import (
 
 	"github.com/tendermint/go-amino"
 
-
 	"github.com/FiboChain/fbc/libs/tendermint/crypto"
 	tmbytes "github.com/FiboChain/fbc/libs/tendermint/libs/bytes"
 	tmproto "github.com/FiboChain/fbc/libs/tendermint/proto/types"
@@ -58,6 +57,7 @@ type Vote struct {
 	ValidatorAddress Address       `json:"validator_address"`
 	ValidatorIndex   int           `json:"validator_index"`
 	Signature        []byte        `json:"signature"`
+	HasVC            bool          `json:"has_vc"` // enterNewRoundAVC at this Height
 }
 
 func (vote Vote) AminoSize(cdc *amino.Codec) int {
@@ -95,6 +95,9 @@ func (vote Vote) AminoSize(cdc *amino.Codec) int {
 
 	if len(vote.Signature) != 0 {
 		size += 1 + amino.ByteSliceSize(vote.Signature)
+	}
+	if vote.HasVC {
+		size += 1 + 1
 	}
 
 	return size
@@ -176,6 +179,13 @@ func (vote *Vote) UnmarshalFromAmino(cdc *amino.Codec, data []byte) error {
 		case 8:
 			vote.Signature = make([]byte, len(subData))
 			copy(vote.Signature, subData)
+		case 9:
+			var n int
+			vote.HasVC, n, err = amino.DecodeBool(data)
+			if err != nil {
+				return err
+			}
+			dataLen = uint64(n)
 		default:
 			return fmt.Errorf("unexpect feild num %d", pos)
 		}
@@ -211,7 +221,17 @@ func (vote *Vote) CommitSig() CommitSig {
 }
 
 func (vote *Vote) SignBytes(chainID string) []byte {
-	bz, err := cdc.MarshalBinaryLengthPrefixed(CanonicalizeVote(chainID, vote))
+	if HigherThanVenus1(vote.Height) {
+		return vote.ibcSignBytes(chainID)
+	}
+	return vote.originSignBytes(chainID)
+}
+
+func (vote *Vote) ibcSignBytes(chainID string) []byte {
+	return VoteSignBytes(chainID, vote)
+}
+func (vote *Vote) originSignBytes(chainId string) []byte {
+	bz, err := cdc.MarshalBinaryLengthPrefixed(CanonicalizeVote(chainId, vote))
 	if err != nil {
 		panic(err)
 	}
@@ -321,7 +341,7 @@ func (vote *Vote) ToProto() *tmproto.Vote {
 	}
 }
 
-//FromProto converts a proto generetad type to a handwritten type
+// FromProto converts a proto generetad type to a handwritten type
 // return type, nil if everything converts safely, otherwise nil, error
 func VoteFromProto(pv *tmproto.Vote) (*Vote, error) {
 	if pv == nil {

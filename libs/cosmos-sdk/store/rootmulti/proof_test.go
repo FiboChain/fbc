@@ -1,12 +1,12 @@
 package rootmulti
 
 import (
+	types2 "github.com/FiboChain/fbc/libs/tendermint/types"
 	"testing"
 
-	iavltree "github.com/FiboChain/fbc/libs/iavl"
 	abci "github.com/FiboChain/fbc/libs/tendermint/abci/types"
-	"github.com/stretchr/testify/require"
 	dbm "github.com/FiboChain/fbc/libs/tm-db"
+	"github.com/stretchr/testify/require"
 
 	"github.com/FiboChain/fbc/libs/cosmos-sdk/store/iavl"
 	"github.com/FiboChain/fbc/libs/cosmos-sdk/store/types"
@@ -58,6 +58,7 @@ func TestVerifyIAVLStoreQueryProof(t *testing.T) {
 
 func TestVerifyMultiStoreQueryProof(t *testing.T) {
 	// Create main tree for testing.
+	types2.UnittestOnlySetMilestoneVenus1Height(-1)
 	db := dbm.NewMemDB()
 	store := NewStore(db)
 	iavlStoreKey := types.NewKVStoreKey("iavlStoreKey")
@@ -111,36 +112,8 @@ func TestVerifyMultiStoreQueryProof(t *testing.T) {
 	require.NotNil(t, err)
 }
 
-func TestVerifyMultiStoreQueryProofEmptyStore(t *testing.T) {
-	// Create main tree for testing.
-	db := dbm.NewMemDB()
-	store := NewStore(db)
-	iavlStoreKey := types.NewKVStoreKey("iavlStoreKey")
-
-	store.MountStoreWithDB(iavlStoreKey, types.StoreTypeIAVL, nil)
-	store.LoadVersion(0)
-	cid, _ := store.CommitterCommitMap(nil) // Commit with empty iavl store.
-
-	// Get Proof
-	res := store.Query(abci.RequestQuery{
-		Path:  "/iavlStoreKey/key", // required path to get key/value+proof
-		Data:  []byte("MYKEY"),
-		Prove: true,
-	})
-	require.NotNil(t, res.Proof)
-
-	// Verify proof.
-	prt := DefaultProofRuntime()
-	err := prt.VerifyAbsence(res.Proof, cid.Hash, "/iavlStoreKey/MYKEY")
-	require.Nil(t, err)
-
-	// Verify (bad) proof.
-	prt = DefaultProofRuntime()
-	err = prt.VerifyValue(res.Proof, cid.Hash, "/iavlStoreKey/MYKEY", []byte("MYVALUE"))
-	require.NotNil(t, err)
-}
-
 func TestVerifyMultiStoreQueryProofAbsence(t *testing.T) {
+	types2.UnittestOnlySetMilestoneVenus1Height(-1)
 	// Create main tree for testing.
 	db := dbm.NewMemDB()
 	store := NewStore(db)

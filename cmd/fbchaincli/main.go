@@ -2,6 +2,9 @@ package main
 
 import (
 	"fmt"
+
+	interfacetypes "github.com/FiboChain/fbc/libs/cosmos-sdk/codec/types"
+
 	authtypes "github.com/FiboChain/fbc/libs/cosmos-sdk/x/auth/types"
 
 	"github.com/FiboChain/fbc/app"
@@ -15,6 +18,7 @@ import (
 	clientrpc "github.com/FiboChain/fbc/libs/cosmos-sdk/client/rpc"
 	sdkcodec "github.com/FiboChain/fbc/libs/cosmos-sdk/codec"
 	"github.com/FiboChain/fbc/libs/cosmos-sdk/crypto/keys"
+	"github.com/FiboChain/fbc/libs/cosmos-sdk/server"
 	sdk "github.com/FiboChain/fbc/libs/cosmos-sdk/types"
 	"github.com/FiboChain/fbc/libs/cosmos-sdk/version"
 	"github.com/FiboChain/fbc/libs/cosmos-sdk/x/auth"
@@ -32,7 +36,8 @@ import (
 )
 
 var (
-	cdc = codec.MakeCodec(app.ModuleBasics)
+	cdc          = codec.MakeCodec(app.ModuleBasics)
+	interfaceReg = codec.MakeIBC(app.ModuleBasics)
 )
 
 func main() {
@@ -58,18 +63,19 @@ func main() {
 	}
 
 	// Add --chain-id to persistent flags and mark it required
-	rootCmd.PersistentFlags().String(flags.FlagChainID, "", "Chain ID of tendermint node")
+	rootCmd.PersistentFlags().String(flags.FlagChainID, server.ChainID, "Chain ID of tendermint node")
 	rootCmd.PersistentPreRunE = func(_ *cobra.Command, _ []string) error {
-		utils.SetParseAppTx(parseMsgEthereumTx)
+		utils.SetParseAppTx(wrapDecoder(parseMsgEthereumTx, parseProtobufTx))
 		return client.InitConfig(rootCmd)
 	}
-
+	protoCdc := sdkcodec.NewProtoCodec(interfaceReg)
+	proxy := sdkcodec.NewCodecProxy(protoCdc, cdc)
 	// Construct Root Command
 	rootCmd.AddCommand(
 		clientrpc.StatusCommand(),
 		sdkclient.ConfigCmd(app.DefaultCLIHome),
-		queryCmd(cdc),
-		txCmd(cdc),
+		queryCmd(proxy, interfaceReg),
+		txCmd(proxy, interfaceReg),
 		flags.LineBreak,
 		client.KeyCommands(),
 		client.AddrCommands(),
@@ -78,8 +84,8 @@ func main() {
 		flags.NewCompletionCmd(rootCmd, true),
 	)
 
-	// Add flags and prefix all env exposed with FIBOCHAIN
-	executor := cli.PrepareMainCmd(rootCmd, "FIBOCHAIN", app.DefaultCLIHome)
+	// Add flags and prefix all env exposed with FBChain
+	executor := cli.PrepareMainCmd(rootCmd, "FBChain", app.DefaultCLIHome)
 
 	err := executor.Execute()
 	if err != nil {
@@ -87,33 +93,34 @@ func main() {
 	}
 }
 
-func queryCmd(cdc *sdkcodec.Codec) *cobra.Command {
+func queryCmd(proxy *sdkcodec.CodecProxy, reg interfacetypes.InterfaceRegistry) *cobra.Command {
 	queryCmd := &cobra.Command{
 		Use:     "query",
 		Aliases: []string{"q"},
 		Short:   "Querying subcommands",
 	}
-
+	cdc := proxy.GetCdc()
 	queryCmd.AddCommand(
 		authcmd.GetAccountCmd(cdc),
 		flags.LineBreak,
 		authcmd.QueryTxsByEventsCmd(cdc),
-		authcmd.QueryTxCmd(cdc),
+		authcmd.QueryTxCmd(proxy),
 		flags.LineBreak,
 	)
 
 	// add modules' query commands
 	app.ModuleBasics.AddQueryCommands(queryCmd, cdc)
+	app.ModuleBasics.AddQueryCommandsV2(queryCmd, proxy, reg)
 
 	return queryCmd
 }
 
-func txCmd(cdc *sdkcodec.Codec) *cobra.Command {
+func txCmd(proxy *sdkcodec.CodecProxy, reg interfacetypes.InterfaceRegistry) *cobra.Command {
 	txCmd := &cobra.Command{
 		Use:   "tx",
 		Short: "Transactions subcommands",
 	}
-
+	cdc := proxy.GetCdc()
 	txCmd.AddCommand(
 		tokencmd.SendTxCmd(cdc),
 		flags.LineBreak,
@@ -128,6 +135,7 @@ func txCmd(cdc *sdkcodec.Codec) *cobra.Command {
 
 	// add modules' tx commands
 	app.ModuleBasics.AddTxCommands(txCmd, cdc)
+	app.ModuleBasics.AddTxCommandsV2(txCmd, proxy, reg)
 
 	// remove auth and bank commands as they're mounted under the root tx command
 	var cmdsToRemove []*cobra.Command
@@ -146,7 +154,22 @@ func txCmd(cdc *sdkcodec.Codec) *cobra.Command {
 	return txCmd
 }
 
-func parseMsgEthereumTx(cdc *sdkcodec.Codec, txBytes []byte) (sdk.Tx, error) {
+func wrapDecoder(handlers ...utils.ParseAppTxHandler) utils.ParseAppTxHandler {
+	return func(cdc *sdkcodec.CodecProxy, txBytes []byte) (sdk.Tx, error) {
+		var (
+			tx  sdk.Tx
+			err error
+		)
+		for _, handler := range handlers {
+			tx, err = handler(cdc, txBytes)
+			if nil == err && tx != nil {
+				return tx, err
+			}
+		}
+		return tx, err
+	}
+}
+func parseMsgEthereumTx(cdc *sdkcodec.CodecProxy, txBytes []byte) (sdk.Tx, error) {
 	var tx evmtypes.MsgEthereumTx
 	// try to decode through RLP first
 	if err := authtypes.EthereumTxDecode(txBytes, &tx); err == nil {
@@ -157,4 +180,16 @@ func parseMsgEthereumTx(cdc *sdkcodec.Codec, txBytes []byte) (sdk.Tx, error) {
 		return nil, err
 	}
 	return &tx, nil
+}
+
+func parseProtobufTx(cdc *sdkcodec.CodecProxy, txBytes []byte) (sdk.Tx, error) {
+	tx, err := evmtypes.TxDecoder(cdc)(txBytes, evmtypes.IGNORE_HEIGHT_CHECKING)
+	if nil != err {
+		return nil, err
+	}
+	switch realTx := tx.(type) {
+	case *authtypes.IbcTx:
+		return authtypes.FromProtobufTx(cdc, realTx)
+	}
+	return tx, err
 }

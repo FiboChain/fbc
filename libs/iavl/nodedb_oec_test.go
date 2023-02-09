@@ -242,7 +242,7 @@ func BenchmarkUpdateBranch(b *testing.B) {
 			for _, c := range cases {
 				capacity += c.nodeNums
 				root, _ := mockNodes(c.version, c.nodeNums)
-				ndb.updateBranchConcurrency(root, map[string]*Node{})
+				ndb.updateBranchConcurrency(root, nil)
 			}
 		}
 	})
@@ -264,10 +264,10 @@ func Test_saveCommitOrphans(t *testing.T) {
 
 	ndb := mockNodeDB()
 	for n, c := range cases {
-		commitOrphans := make(map[string]int64)
+		var commitOrphans []commitOrphan
 		for i := 0; i < c.orphansNum; i++ {
 			node := mockNode(c.version)
-			commitOrphans[string(node._hash())] = rand.Int63n(100) + 100*int64(n)
+			commitOrphans = append(commitOrphans, commitOrphan{Version: rand.Int63n(100) + 100*int64(n), NodeHash: node._hash()})
 		}
 
 		batch1 := ndb.NewBatch()
@@ -275,14 +275,14 @@ func Test_saveCommitOrphans(t *testing.T) {
 		require.NoError(t, ndb.Commit(batch1))
 
 		batch2 := ndb.NewBatch()
-		ndb.saveCommitOrphans(batch2, c.version+1, commitOrphans)
+		ndb.saveCommitOrphans(batch2, c.version+1, commitOrphans, false)
 		require.NoError(t, ndb.Commit(batch2))
 
-		for hash, fromVersion := range commitOrphans {
-			key := ndb.orphanKey(fromVersion, c.version, []byte(hash))
+		for _, orphan := range commitOrphans {
+			key := ndb.orphanKey(orphan.Version, c.version, orphan.NodeHash)
 			node, err := ndb.dbGet(key)
 			require.NoError(t, err)
-			require.Equal(t, []byte(hash), node)
+			require.Equal(t, orphan.NodeHash, node)
 		}
 	}
 }
@@ -309,14 +309,14 @@ func Test_getNodeInTpp(t *testing.T) {
 		}
 
 		tpp := ndb.prePersistNodeCache
-		lItem := ndb.tppVersionList.PushBack(c.version)
-		ndb.tppMap[c.version] = &tppItem{
+		lItem := ndb.tpp.tppVersionList.PushBack(c.version)
+		ndb.tpp.tppMap[c.version] = &tppItem{
 			nodeMap:  tpp,
 			listItem: lItem,
 		}
 
 		for hash, node := range tpp {
-			getNode, found := ndb.getNodeInTpp([]byte(hash))
+			getNode, found := ndb.tpp.getNode([]byte(hash))
 			require.True(t, found)
 			require.EqualValues(t, node, getNode)
 		}
@@ -340,16 +340,17 @@ func Test_getRootWithCache(t *testing.T) {
 	ndb := mockNodeDB()
 	for _, c := range cases {
 		rootHash := randBytes(32)
-		ndb.heightOrphansMap[c.version] = &heightOrphansItem{c.version, rootHash, nil}
+		ndb.oi.orphanItemMap[c.version] = &orphanItem{rootHash, nil}
 
-		actualHash, err := ndb.getRootWithCache(c.version)
+		actualHash, ok := ndb.findRootHash(c.version)
 		if c.exist {
 			require.Equal(t, actualHash, rootHash)
 		} else {
 			require.Nil(t, actualHash)
 		}
-		require.NoError(t, err)
+		require.Equal(t, ok, true)
 
+		var err error
 		actualHash, err = ndb.getRootWithCacheAndDB(c.version)
 		if c.exist {
 			require.Equal(t, actualHash, rootHash)
@@ -374,9 +375,9 @@ func Test_inVersionCacheMap(t *testing.T) {
 	ndb := mockNodeDB()
 	for _, c := range cases {
 		rootHash := randBytes(32)
-		orphanObj := &heightOrphansItem{version: c.version, rootHash: rootHash}
-		ndb.heightOrphansMap[c.version] = orphanObj
-		actualHash, existed := ndb.inVersionCacheMap(c.version)
+		orphanObj := &orphanItem{rootHash: rootHash}
+		ndb.oi.orphanItemMap[c.version] = orphanObj
+		actualHash, existed := ndb.findRootHash(c.version)
 		require.Equal(t, actualHash, rootHash)
 		require.Equal(t, existed, c.expected)
 	}
@@ -415,6 +416,85 @@ func TestOrphanKeyFast(t *testing.T) {
 				orphanKeyFast(test.From, test.To, test.Hash)
 			})
 		}
+	}
+}
+
+func TestFastNodeCache(t *testing.T) {
+	cases := []struct {
+		ndb     *nodeDB
+		nodes   []*FastNode
+		initFn  func(ndb *nodeDB, fast []*FastNode)
+		checkFn func(ndb *nodeDB, fast []*FastNode)
+	}{
+		{ // getFastNodeFromCache
+			ndb: mockNodeDB(),
+			nodes: []*FastNode{
+				{key: randBytes(32), value: randBytes(10)},
+				{key: randBytes(32), value: randBytes(10)},
+				{key: randBytes(2), value: randBytes(10)},
+				{key: randBytes(8), value: randBytes(10)},
+				{key: randBytes(64), value: randBytes(10)},
+			},
+			initFn: func(ndb *nodeDB, nodes []*FastNode) {
+				for _, n := range nodes {
+					ndb.cacheFastNode(n)
+				}
+			},
+			checkFn: func(ndb *nodeDB, nodes []*FastNode) {
+				for _, n := range nodes {
+					f, ok := ndb.getFastNodeFromCache(n.key)
+					require.NotNil(t, f)
+					require.Equal(t, *f, *n)
+					require.True(t, ok)
+				}
+				// add not exist check
+				f, ok := ndb.getFastNodeFromCache([]byte("testkey"))
+				require.Nil(t, f)
+				require.False(t, ok)
+			},
+		},
+		{ // uncacheFastNode
+			ndb: mockNodeDB(),
+			nodes: []*FastNode{
+				{key: randBytes(32), value: randBytes(10)},
+				{key: randBytes(32), value: randBytes(10)},
+				{key: randBytes(2), value: randBytes(10)},
+				{key: randBytes(8), value: randBytes(10)},
+				{key: randBytes(64), value: randBytes(10)},
+			},
+			initFn: func(ndb *nodeDB, nodes []*FastNode) {
+				for _, n := range nodes {
+					ndb.cacheFastNode(n)
+				}
+				for _, n := range nodes {
+					f, ok := ndb.getFastNodeFromCache(n.key)
+					require.NotNil(t, f)
+					require.Equal(t, *f, *n)
+					require.True(t, ok)
+				}
+			},
+			checkFn: func(ndb *nodeDB, nodes []*FastNode) {
+				// handle uncache
+				for _, n := range nodes[:len(nodes)/2] {
+					ndb.uncacheFastNode(n.key)
+					f, ok := ndb.getFastNodeFromCache(n.key)
+					require.Nil(t, f)
+					require.False(t, ok)
+				}
+				// after check
+				for _, n := range nodes[len(nodes)/2:] {
+					f, ok := ndb.getFastNodeFromCache(n.key)
+					require.NotNil(t, f)
+					require.Equal(t, *f, *n)
+					require.True(t, ok)
+				}
+			},
+		},
+	}
+
+	for _, tc := range cases {
+		tc.initFn(tc.ndb, tc.nodes)
+		tc.checkFn(tc.ndb, tc.nodes)
 	}
 }
 

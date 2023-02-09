@@ -2,12 +2,12 @@ package simulation
 
 import (
 	"encoding/binary"
-	"github.com/FiboChain/fbc/x/evm"
 	"sync"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	ethcrypto "github.com/ethereum/go-ethereum/crypto"
+
 	"github.com/FiboChain/fbc/app/types"
 	"github.com/FiboChain/fbc/libs/cosmos-sdk/codec"
 	store "github.com/FiboChain/fbc/libs/cosmos-sdk/store/types"
@@ -20,6 +20,7 @@ import (
 	"github.com/FiboChain/fbc/x/ammswap"
 	"github.com/FiboChain/fbc/x/dex"
 	distr "github.com/FiboChain/fbc/x/distribution"
+	"github.com/FiboChain/fbc/x/evm"
 	evmtypes "github.com/FiboChain/fbc/x/evm/types"
 	"github.com/FiboChain/fbc/x/evm/watcher"
 	"github.com/FiboChain/fbc/x/farm"
@@ -33,6 +34,7 @@ type QueryOnChainProxy interface {
 	GetAccount(address common.Address) (*types.EthAccount, error)
 	GetStorageAtInternal(address common.Address, key []byte) (hexutil.Bytes, error)
 	GetCodeByHash(hash common.Hash) (hexutil.Bytes, error)
+	GetCodec() *codec.Codec
 }
 
 // AccountKeeper defines the expected account keeper interface
@@ -108,6 +110,10 @@ type SubspaceProxy struct {
 	q *watcher.Querier
 }
 
+func (p SubspaceProxy) CustomKVStore(ctx sdk.Context) sdk.KVStore {
+	panic("implement me")
+}
+
 func NewSubspaceProxy() SubspaceProxy {
 	return SubspaceProxy{
 		q: watcher.NewQuerier(),
@@ -166,6 +172,13 @@ func NewBankKeeperProxy() BankKeeperProxy {
 
 func (b BankKeeperProxy) BlacklistedAddr(addr sdk.AccAddress) bool {
 	return b.blacklistedAddrs[addr.String()]
+}
+
+type StakingKeeperProxy struct {
+}
+
+func (s StakingKeeperProxy) IsValidator(ctx sdk.Context, addr sdk.AccAddress) bool {
+	return true
 }
 
 type InternalDba struct {

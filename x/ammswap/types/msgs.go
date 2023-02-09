@@ -76,7 +76,7 @@ func (msg MsgAddLiquidity) GetSwapTokenPairName() string {
 	return GetSwapTokenPairName(msg.MaxBaseAmount.Denom, msg.QuoteAmount.Denom)
 }
 
-// MsgRemoveLiquidity burns pool tokens to withdraw fibo and Tokens at current ratio.
+// MsgRemoveLiquidity burns pool tokens to withdraw okt and Tokens at current ratio.
 type MsgRemoveLiquidity struct {
 	Liquidity      sdk.Dec        `json:"liquidity"`        // Amount of pool token burned.
 	MinBaseAmount  sdk.SysCoin    `json:"min_base_amount"`  // Minimum base amount.

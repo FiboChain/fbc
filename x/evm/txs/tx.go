@@ -1,12 +1,11 @@
 package txs
 
 import (
-	bam "github.com/FiboChain/fbc/libs/cosmos-sdk/baseapp"
 	sdk "github.com/FiboChain/fbc/libs/cosmos-sdk/types"
 	authexported "github.com/FiboChain/fbc/libs/cosmos-sdk/x/auth/exported"
+	bam "github.com/FiboChain/fbc/libs/system/trace"
 	"github.com/FiboChain/fbc/x/evm/txs/base"
 	"github.com/FiboChain/fbc/x/evm/types"
-	"math/big"
 )
 
 type Tx interface {
@@ -24,20 +23,11 @@ type Tx interface {
 	// GetSenderAccount get sender account
 	GetSenderAccount() authexported.Account
 
-	// ResetWatcher when panic reset watcher
-	ResetWatcher(account authexported.Account)
-
-	// RefundFeesWatcher fix account balance in watcher with refund fees
-	RefundFeesWatcher(account authexported.Account, coins sdk.Coins, price *big.Int)
-
 	// Transition execute evm tx
 	Transition(config types.ChainConfig) (result base.Result, err error)
 
 	// DecorateResult some case(trace tx log) will modify the inResult to log and swallow inErr
 	DecorateResult(inResult *base.Result, inErr error) (result *sdk.Result, err error)
-
-	// RestoreWatcherTransactionReceipt restore watcher TransactionReceipt
-	RestoreWatcherTransactionReceipt(msg *types.MsgEthereumTx)
 
 	// Commit save the inner tx and contracts
 	Commit(msg *types.MsgEthereumTx, result *base.Result)
@@ -46,13 +36,16 @@ type Tx interface {
 	EmitEvent(msg *types.MsgEthereumTx, result *base.Result)
 
 	// FinalizeWatcher after execute evm tx run here
-	FinalizeWatcher(account authexported.Account, err error)
+	FinalizeWatcher(msg *types.MsgEthereumTx, err error, panic bool)
 
 	// AnalyzeStart start record tag
 	AnalyzeStart(tag string)
 
 	// AnalyzeStop stop record tag
 	AnalyzeStop(tag string)
+
+	// Dispose release the resources of the tx, should be called after the tx is unused
+	Dispose()
 }
 
 // TransitionEvmTx execute evm transition template
@@ -79,13 +72,12 @@ func TransitionEvmTx(tx Tx, msg *types.MsgEthereumTx) (result *sdk.Result, err e
 	}
 
 	defer func() {
-		senderAccount := tx.GetSenderAccount()
-		tx.RefundFeesWatcher(senderAccount, msg.GetFee(), msg.Data.Price)
-		if e := recover(); e != nil {
-			tx.ResetWatcher(senderAccount)
+		e := recover()
+		isPanic := e != nil
+		tx.FinalizeWatcher(msg, err, isPanic)
+		if isPanic {
 			panic(e)
 		}
-		tx.FinalizeWatcher(senderAccount, err)
 	}()
 
 	// execute evm tx
@@ -95,8 +87,6 @@ func TransitionEvmTx(tx Tx, msg *types.MsgEthereumTx) (result *sdk.Result, err e
 		// Commit save the inner tx and contracts
 		tx.Commit(msg, &baseResult)
 		tx.EmitEvent(msg, &baseResult)
-	} else {
-		tx.RestoreWatcherTransactionReceipt(msg)
 	}
 
 	return tx.DecorateResult(&baseResult, err)

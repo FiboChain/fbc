@@ -9,8 +9,9 @@ import (
 	"runtime"
 	"strconv"
 
+	"github.com/cosmos/gorocksdb"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/spf13/viper"
-	"github.com/tecbot/gorocksdb"
 )
 
 func init() {
@@ -31,12 +32,14 @@ type RocksDB struct {
 var _ DB = (*RocksDB)(nil)
 
 const (
-	blockSize    = "block_size"
-	blockCache   = "block_cache"
-	statistics   = "statistics"
-	maxOpenFiles = "max_open_files"
-	mmapRead     = "allow_mmap_reads"
-	mmapWrite    = "allow_mmap_writes"
+	blockSize      = "block_size"
+	blockCache     = "block_cache"
+	statistics     = "statistics"
+	maxOpenFiles   = "max_open_files"
+	mmapRead       = "allow_mmap_reads"
+	mmapWrite      = "allow_mmap_writes"
+	unorderedWrite = "unordered_write"
+	pipelinedWrite = "pipelined_write"
 )
 
 func NewRocksDB(name string, dir string) (*RocksDB, error) {
@@ -75,6 +78,12 @@ func NewRocksDB(name string, dir string) (*RocksDB, error) {
 		}
 		if enable {
 			opts.EnableStatistics()
+
+			if name == "application" {
+				rdbMetrics := NewRocksDBMetrics(opts)
+				prometheus.Unregister(rdbMetrics)
+				prometheus.MustRegister(rdbMetrics)
+			}
 		}
 	}
 
@@ -103,6 +112,26 @@ func NewRocksDB(name string, dir string) (*RocksDB, error) {
 		}
 		if enable {
 			opts.SetAllowMmapWrites(enable)
+		}
+	}
+
+	if v, ok := params[unorderedWrite]; ok {
+		enable, err := strconv.ParseBool(v)
+		if err != nil {
+			panic(fmt.Sprintf("Invalid options parameter %s: %s", unorderedWrite, err))
+		}
+		if enable {
+			opts.SetUnorderedWrite(enable)
+		}
+	}
+
+	if v, ok := params[pipelinedWrite]; ok {
+		enable, err := strconv.ParseBool(v)
+		if err != nil {
+			panic(fmt.Sprintf("Invalid options parameter %s: %s", pipelinedWrite, err))
+		}
+		if enable {
+			opts.SetEnablePipelinedWrite(enable)
 		}
 	}
 
@@ -244,17 +273,22 @@ func (db *RocksDB) Stats() map[string]string {
 
 // NewBatch implements DB.
 func (db *RocksDB) NewBatch() Batch {
-	return newRocksDBBatch(db)
+	return NewRocksDBBatch(db)
 }
 
 // Iterator implements DB.
 func (db *RocksDB) Iterator(start, end []byte) (Iterator, error) {
 	itr := db.db.NewIterator(db.ro)
-	return newRocksDBIterator(itr, start, end, false), nil
+	return NewRocksDBIterator(itr, start, end, false), nil
 }
 
 // ReverseIterator implements DB.
 func (db *RocksDB) ReverseIterator(start, end []byte) (Iterator, error) {
 	itr := db.db.NewIterator(db.ro)
-	return newRocksDBIterator(itr, start, end, true), nil
+	return NewRocksDBIterator(itr, start, end, true), nil
+}
+
+func (db *RocksDB) Compact() error {
+	db.DB().CompactRange(gorocksdb.Range{})
+	return nil
 }

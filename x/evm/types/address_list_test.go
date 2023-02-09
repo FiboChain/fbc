@@ -1,19 +1,25 @@
 package types
 
 import (
-	"github.com/ethereum/go-ethereum/common/hexutil"
+	"encoding/json"
 	"testing"
+
+	"github.com/ethereum/go-ethereum/common/hexutil"
 
 	sdk "github.com/FiboChain/fbc/libs/cosmos-sdk/types"
 	"github.com/stretchr/testify/require"
 )
 
 const (
-	addr           = "ex1k0wwsg7xf9tjt3rvxdewz42e74sp286agrf9qc"
-	addr1          = "0x83D83497431C2D3FEab296a9fba4e5FaDD2f7eD0"
+	addr           = "fb1k0wwsg7xf9tjt3rvxdewz42e74sp286agrf9qc"
+	addr1          = "0x4492830839558AF3F1AE2D9c71242Dc6b596e017"
 	expectedOutput = `Address List:
-ex1k0wwsg7xf9tjt3rvxdewz42e74sp286agrf9qc
-ex1k0wwsg7xf9tjt3rvxdewz42e74sp286agrf9qc`
+fb1k0wwsg7xf9tjt3rvxdewz42e74sp286agrf9qc
+fb1k0wwsg7xf9tjt3rvxdewz42e74sp286agrf9qc`
+	expectedBlockListOutput = `BlockedContractList List:
+Address: fb1k0wwsg7xf9tjt3rvxdewz42e74sp286agrf9qc
+Method List:
+Sign: aaaaExtra: aaaa()`
 )
 
 func TestAddressList_String(t *testing.T) {
@@ -22,6 +28,26 @@ func TestAddressList_String(t *testing.T) {
 
 	addrList := AddressList{accAddr, accAddr}
 	require.Equal(t, expectedOutput, addrList.String())
+}
+
+func TestBlockContractList_String(t *testing.T) {
+	accAddr, err := sdk.AccAddressFromBech32(addr)
+	require.NoError(t, err)
+	bcMethod := BlockedContract{
+		Address: accAddr,
+		BlockMethods: ContractMethods{
+			ContractMethod{
+				Sign:  "aaaa",
+				Extra: "aaaa()",
+			},
+		},
+	}
+	var blockContractList BlockedContractList
+	blockContractList = []BlockedContract{
+		bcMethod,
+	}
+
+	require.Equal(t, expectedBlockListOutput, blockContractList.String())
 }
 
 func TestBlockMethod(t *testing.T) {
@@ -61,8 +87,10 @@ func TestContractMethodBlockedCache_SetContractMethod(t *testing.T) {
 	bc := BlockedContract{Address: accAddr, BlockMethods: cmm}
 
 	data := ModuleCdc.MustMarshalJSON(bc.BlockMethods)
-	cmbl.SetContractMethod(data, bc.BlockMethods)
 	resultBc, ok := cmbl.GetContractMethod(data)
+	require.False(t, ok)
+	cmbl.SetContractMethod(data, bc.BlockMethods)
+	resultBc, ok = cmbl.GetContractMethod(data)
 	require.True(t, ok)
 	atcalData := ModuleCdc.MustMarshalJSON(resultBc)
 	require.Equal(t, data, atcalData)
@@ -411,4 +439,184 @@ func TestContractMethods_ValidateBasic(t *testing.T) {
 	//error duplicated
 	cmm = ContractMethods{cm1, cm2, cm1}
 	require.Equal(t, ErrDuplicatedMethod, cmm.ValidateBasic())
+}
+
+func TestBlockedContract_ValidateExtra(t *testing.T) {
+	accAddr, err := sdk.AccAddressFromBech32(addr)
+	require.NoError(t, err)
+	cmm := ContractMethods{}
+	method1 := []byte("transfer")[:4]
+	method2 := []byte("approve")[:4]
+	cm1 := ContractMethod{Sign: hexutil.Encode(method1), Extra: "test1"}
+	cm2 := ContractMethod{Sign: hexutil.Encode(method2), Extra: "test1"}
+	cmm = append(cmm, cm1, cm2)
+	bc := NewBlockContract(accAddr, cmm)
+
+	//success
+	err = bc.ValidateExtra()
+	require.NoError(t, err)
+
+	//error duplicated method
+	bc = NewBlockContract(accAddr, ContractMethods{cm1, cm1})
+	err = bc.ValidateExtra()
+	require.Equal(t, err, ErrDuplicatedMethod)
+
+	//error empty address
+	bc = NewBlockContract(nil, ContractMethods{cm1, cm1})
+	err = bc.ValidateExtra()
+	require.Equal(t, err, ErrEmptyAddressBlockedContract)
+
+	//error empty method
+	emptyCM := ContractMethod{Sign: "", Extra: "test1"}
+	bc = NewBlockContract(accAddr, ContractMethods{cm1, emptyCM})
+	err = bc.ValidateExtra()
+	require.Equal(t, err, ErrEmptyMethod)
+
+	//success factor=0
+	factor := GuFactor{Factor: sdk.NewDec(0)}
+	bytes, err := json.Marshal(factor)
+	require.NoError(t, err)
+	factorCM := ContractMethod{Sign: hexutil.Encode(method2), Extra: string(bytes)}
+	bc = NewBlockContract(accAddr, ContractMethods{cm1, factorCM})
+	err = bc.ValidateExtra()
+	require.NoError(t, err)
+
+	//success factor>0
+	factor = GuFactor{Factor: sdk.NewDec(1)}
+	bytes, err = json.Marshal(factor)
+	require.NoError(t, err)
+	factorCM = ContractMethod{Sign: hexutil.Encode(method2), Extra: string(bytes)}
+	bc = NewBlockContract(accAddr, ContractMethods{cm1, factorCM})
+	err = bc.ValidateExtra()
+	require.NoError(t, err)
+
+	//err factor<0
+	factor = GuFactor{Factor: sdk.NewDec(-1)}
+	bytes, err = json.Marshal(factor)
+	require.NoError(t, err)
+	factorCM = ContractMethod{Sign: hexutil.Encode(method2), Extra: string(bytes)}
+	bc = NewBlockContract(accAddr, ContractMethods{cm1, factorCM})
+	err = bc.ValidateExtra()
+	require.Equal(t, err, ErrGUFactor)
+}
+
+func TestBlockedContractList_ValidateExtra(t *testing.T) {
+	accAddr1, err := sdk.AccAddressFromBech32(addr)
+	require.NoError(t, err)
+	cmm1 := ContractMethods{}
+	method1 := []byte("transfer")[:4]
+	method2 := []byte("allow")[:4]
+	cm1 := ContractMethod{Sign: hexutil.Encode(method1), Extra: "test1"}
+	cm2 := ContractMethod{Sign: hexutil.Encode(method2), Extra: "test1"}
+	cmm1 = append(cmm1, cm1, cm2)
+	bc1 := NewBlockContract(accAddr1, cmm1)
+
+	accAddr2, err := sdk.AccAddressFromBech32(addr1)
+	require.NoError(t, err)
+	cmm2 := ContractMethods{}
+	method3 := []byte("cccc")[:4]
+	method4 := []byte("dddd")[:4]
+	cm3 := ContractMethod{Sign: hexutil.Encode(method3), Extra: "test3"}
+	cm4 := ContractMethod{Sign: hexutil.Encode(method4), Extra: "test4"}
+	cmm2 = append(cmm2, cm3, cm4)
+	bc2 := NewBlockContract(accAddr2, cmm2)
+
+	//success. blockedContractList is one item
+	bcl1 := BlockedContractList{*bc1}
+	require.NoError(t, bcl1.ValidateExtra())
+
+	//success. blockedContractList is multi item
+	bcl2 := BlockedContractList{*bc1, *bc2}
+	require.NoError(t, bcl2.ValidateExtra())
+
+	//error. blockedContractList is empty method
+	emptyCM := ContractMethod{Sign: "", Extra: "test1"}
+	bc := NewBlockContract(accAddr1, ContractMethods{cm1, emptyCM})
+	bcl3 := BlockedContractList{*bc}
+	require.Equal(t, ErrEmptyMethod, bcl3.ValidateExtra())
+
+	//error. blockedContractList is empty address
+	emptyCM = ContractMethod{Sign: "empty", Extra: "test1"}
+	bc = NewBlockContract(nil, ContractMethods{cm1, emptyCM})
+	bcl3 = BlockedContractList{*bc}
+	require.Equal(t, ErrEmptyAddressBlockedContract, bcl3.ValidateExtra())
+
+	//error. blockedContractList duplicated address
+	bcl3 = BlockedContractList{*bc1, *bc1}
+	require.Equal(t, ErrDuplicatedAddr, bcl3.ValidateExtra())
+
+	//error. blockedContractList duplicated method
+	bc = NewBlockContract(accAddr1, ContractMethods{cm1, cm1})
+	bcl3 = BlockedContractList{*bc}
+	require.Equal(t, ErrDuplicatedMethod, bcl3.ValidateExtra())
+
+	//success. factor = 0.
+	factor := GuFactor{Factor: sdk.NewDec(0)}
+	bytes, err := json.Marshal(factor)
+	require.NoError(t, err)
+	factorCM := ContractMethod{Sign: hexutil.Encode(method2), Extra: string(bytes)}
+	bc = NewBlockContract(accAddr1, ContractMethods{factorCM})
+	bcl2 = BlockedContractList{*bc, *bc2}
+	require.NoError(t, bcl2.ValidateExtra())
+
+	//success. factor > 0.
+	factor = GuFactor{Factor: sdk.NewDec(1)}
+	bytes, err = json.Marshal(factor)
+	require.NoError(t, err)
+	factorCM = ContractMethod{Sign: hexutil.Encode(method2), Extra: string(bytes)}
+	bc = NewBlockContract(accAddr1, ContractMethods{factorCM})
+	bcl2 = BlockedContractList{*bc, *bc2}
+	require.NoError(t, bcl2.ValidateExtra())
+
+	//success. factor < 0.
+	factor = GuFactor{Factor: sdk.NewDec(-1)}
+	bytes, err = json.Marshal(factor)
+	require.NoError(t, err)
+	factorCM = ContractMethod{Sign: hexutil.Encode(method2), Extra: string(bytes)}
+	bc = NewBlockContract(accAddr1, ContractMethods{factorCM})
+	bcl2 = BlockedContractList{*bc, *bc2}
+	require.Equal(t, ErrGUFactor, bcl2.ValidateExtra())
+}
+
+func TestContractMethods_ValidateExtra(t *testing.T) {
+	method1 := hexutil.Encode([]byte("transfer")[:4])
+	method2 := hexutil.Encode([]byte("allow")[:4])
+	cm1 := ContractMethod{Sign: method1, Extra: "test1"}
+	cm2 := ContractMethod{Sign: method2, Extra: "test2"}
+
+	//success
+	cmm := ContractMethods{cm1, cm2}
+	require.NoError(t, cmm.ValidateExtra())
+	//error empty methods
+	cm3 := ContractMethod{Sign: "", Extra: "test1"}
+	cmm = ContractMethods{cm1, cm2, cm3}
+	require.Equal(t, ErrEmptyMethod, cmm.ValidateExtra())
+	//error duplicated
+	cmm = ContractMethods{cm1, cm2, cm1}
+	require.Equal(t, ErrDuplicatedMethod, cmm.ValidateExtra())
+
+	//success. factor ==0
+	factor := GuFactor{Factor: sdk.NewDec(0)}
+	bytes, err := json.Marshal(factor)
+	require.NoError(t, err)
+	factorCM := ContractMethod{Sign: method2, Extra: string(bytes)}
+	cmm = ContractMethods{cm1, factorCM}
+	require.NoError(t, cmm.ValidateExtra())
+
+	//success. factor >0
+	factor = GuFactor{Factor: sdk.NewDec(1)}
+	bytes, err = json.Marshal(factor)
+	require.NoError(t, err)
+	factorCM = ContractMethod{Sign: method2, Extra: string(bytes)}
+	cmm = ContractMethods{cm1, factorCM}
+	require.NoError(t, cmm.ValidateExtra())
+
+	//error. factor <0
+	factor = GuFactor{Factor: sdk.NewDec(-1)}
+	bytes, err = json.Marshal(factor)
+	require.NoError(t, err)
+	factorCM = ContractMethod{Sign: method2, Extra: string(bytes)}
+	cmm = ContractMethods{cm1, factorCM}
+	require.Equal(t, ErrGUFactor, cmm.ValidateExtra())
+
 }

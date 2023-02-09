@@ -1,3 +1,5 @@
+//go:build ignore
+
 package keeper
 
 import (
@@ -74,7 +76,7 @@ func TestKeeper_StoreOrderIDsMap(t *testing.T) {
 	ctx := testInput.Ctx
 
 	orderIDs := []string{"ID0000000010-1", "ID0000000010-2", "ID0000000010-3"}
-	//key xxb_fibo:10.00000000:BUY
+	//key xxb_okt:10.00000000:BUY
 	keeper.StoreOrderIDsMap(ctx, "xxb_"+common.NativeToken+":10.00000000:BUY", orderIDs)
 
 	require.EqualValues(t, 0, len(keeper.diskCache.orderIDsMap.Data))

@@ -46,9 +46,9 @@ func (ctx CLIContext) CheckTendermintError(err error, txBytes []byte) *sdk.TxRes
 		return nil
 	}
 	var height int64
-	info, _ := ctx.Client.BlockchainInfo(0, 0)
-	if info != nil {
-		height = info.LastHeight
+	lastHeight, err2 := ctx.Client.LatestBlockNumber()
+	if err2 == nil {
+		height = lastHeight
 	} else {
 		// default new tx hash
 		height = types.GetMilestoneVenusHeight()
@@ -61,18 +61,21 @@ func (ctx CLIContext) CheckTendermintError(err error, txBytes []byte) *sdk.TxRes
 	case strings.Contains(errStr, strings.ToLower(mempool.ErrTxInCache.Error())):
 		return &sdk.TxResponse{
 			Code:   sdkerrors.ErrTxInMempoolCache.ABCICode(),
+			RawLog: errStr,
 			TxHash: txHash,
 		}
 
 	case strings.Contains(errStr, "mempool is full"):
 		return &sdk.TxResponse{
 			Code:   sdkerrors.ErrMempoolIsFull.ABCICode(),
+			RawLog: errStr,
 			TxHash: txHash,
 		}
 
 	case strings.Contains(errStr, "tx too large"):
 		return &sdk.TxResponse{
 			Code:   sdkerrors.ErrTxTooLarge.ABCICode(),
+			RawLog: errStr,
 			TxHash: txHash,
 		}
 

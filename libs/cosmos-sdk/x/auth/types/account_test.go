@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/FiboChain/fbc/libs/tendermint/crypto/multisig"
+
 	"github.com/FiboChain/fbc/libs/tendermint/crypto/secp256k1"
 	"github.com/stretchr/testify/require"
 
